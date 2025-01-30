@@ -17,4 +17,5 @@ numpy
 fitz
 frontend
 PyMuPDF
-pysqlite3
+faiss-cpu
+
