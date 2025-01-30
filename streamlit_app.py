@@ -56,6 +56,8 @@ def extract_model_names(models_info: Dict[str, List[Dict[str, Any]]]) -> Tuple[s
 
 import fitz  # PyMuPDF
 
+from langchain.schema import Document
+
 def create_vector_db(file_upload) -> Chroma:
     """Create a vector database from an uploaded PDF file using PyMuPDF."""
     logger.info(f"Creating vector DB from file upload: {file_upload.name}")
@@ -72,9 +74,12 @@ def create_vector_db(file_upload) -> Chroma:
     for page in doc:
         text += page.get_text("text")  # Extract text from the page
 
+    # Wrap text in Document object for Langchain processing
+    documents = [Document(page_content=text)]  # Now it's a list of Documents
+
     # Split text into chunks
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=7500, chunk_overlap=100)
-    chunks = text_splitter.split_documents([text])
+    chunks = text_splitter.split_documents(documents)  # Pass a list of Documents
     logger.info("Document split into chunks")
 
     # Updated embeddings configuration
@@ -89,6 +94,7 @@ def create_vector_db(file_upload) -> Chroma:
     shutil.rmtree(temp_dir)
     logger.info(f"Temporary directory {temp_dir} removed")
     return vector_db
+
 
 def process_question(question: str, vector_db: Chroma, selected_model: str) -> str:
     """Process a user question using the vector database and selected language model."""
