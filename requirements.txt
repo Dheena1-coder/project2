@@ -16,3 +16,4 @@ Pillow
 numpy
 fitz
 frontend
+PyMuPDF
