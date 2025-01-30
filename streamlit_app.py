@@ -54,8 +54,10 @@ def extract_model_names(models_info: Dict[str, List[Dict[str, Any]]]) -> Tuple[s
     logger.info(f"Extracted model names: {model_names}")
     return model_names
 
+import fitz  # PyMuPDF
+
 def create_vector_db(file_upload) -> Chroma:
-    """Create a vector database from an uploaded PDF file."""
+    """Create a vector database from an uploaded PDF file using PyMuPDF."""
     logger.info(f"Creating vector DB from file upload: {file_upload.name}")
     temp_dir = tempfile.mkdtemp()
 
@@ -63,11 +65,16 @@ def create_vector_db(file_upload) -> Chroma:
     with open(path, "wb") as f:
         f.write(file_upload.getvalue())
         logger.info(f"File saved to temporary path: {path}")
-        loader = UnstructuredPDFLoader(path)
-        data = loader.load()
 
+    # Using PyMuPDF to extract text
+    doc = fitz.open(path)
+    text = ""
+    for page in doc:
+        text += page.get_text("text")  # Extract text from the page
+
+    # Split text into chunks
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=7500, chunk_overlap=100)
-    chunks = text_splitter.split_documents(data)
+    chunks = text_splitter.split_documents([text])
     logger.info("Document split into chunks")
 
     # Updated embeddings configuration
