@@ -1,10 +1,3 @@
-"""
-Streamlit application for PDF-based Retrieval-Augmented Generation (RAG) using Ollama + LangChain.
-
-This application allows users to upload a PDF, process it,
-and then ask questions about the content using a selected language model.
-"""
-
 import streamlit as st
 import logging
 import os
@@ -25,7 +18,6 @@ from langchain.retrievers.multi_query import MultiQueryRetriever
 from typing import List, Tuple, Dict, Any, Optional
 
 # Set protobuf environment variable to avoid error messages
-# This might cause some issues with latency but it's a tradeoff
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 # Streamlit page configuration
@@ -45,36 +37,25 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+def mock_ollama_list():
+    """Simulate a response from Ollama API with dummy models for Streamlit Cloud."""
+    return {
+        "models": [
+            {"name": "dummy-model-1"},
+            {"name": "dummy-model-2"}
+        ]
+    }
 
 @st.cache_resource(show_spinner=True)
-def extract_model_names(
-    models_info: Dict[str, List[Dict[str, Any]]],
-) -> Tuple[str, ...]:
-    """
-    Extract model names from the provided models information.
-
-    Args:
-        models_info (Dict[str, List[Dict[str, Any]]]): Dictionary containing information about available models.
-
-    Returns:
-        Tuple[str, ...]: A tuple of model names.
-    """
+def extract_model_names(models_info: Dict[str, List[Dict[str, Any]]]) -> Tuple[str, ...]:
+    """Extract model names from the provided models information."""
     logger.info("Extracting model names from models_info")
     model_names = tuple(model["name"] for model in models_info["models"])
     logger.info(f"Extracted model names: {model_names}")
     return model_names
 
-
 def create_vector_db(file_upload) -> Chroma:
-    """
-    Create a vector database from an uploaded PDF file.
-
-    Args:
-        file_upload (st.UploadedFile): Streamlit file upload object containing the PDF.
-
-    Returns:
-        Chroma: A vector store containing the processed document chunks.
-    """
+    """Create a vector database from an uploaded PDF file."""
     logger.info(f"Creating vector DB from file upload: {file_upload.name}")
     temp_dir = tempfile.mkdtemp()
 
@@ -102,19 +83,8 @@ def create_vector_db(file_upload) -> Chroma:
     logger.info(f"Temporary directory {temp_dir} removed")
     return vector_db
 
-
 def process_question(question: str, vector_db: Chroma, selected_model: str) -> str:
-    """
-    Process a user question using the vector database and selected language model.
-
-    Args:
-        question (str): The user's question.
-        vector_db (Chroma): The vector database containing document embeddings.
-        selected_model (str): The name of the selected language model.
-
-    Returns:
-        str: The generated response to the user's question.
-    """
+    """Process a user question using the vector database and selected language model."""
     logger.info(f"Processing question: {question} using model: {selected_model}")
     
     # Initialize LLM
@@ -158,18 +128,9 @@ def process_question(question: str, vector_db: Chroma, selected_model: str) -> s
     logger.info("Question processed and response generated")
     return response
 
-
 @st.cache_data
 def extract_all_pages_as_images(file_upload) -> List[Any]:
-    """
-    Extract all pages from a PDF file as images.
-
-    Args:
-        file_upload (st.UploadedFile): Streamlit file upload object containing the PDF.
-
-    Returns:
-        List[Any]: A list of image objects representing each page of the PDF.
-    """
+    """Extract all pages from a PDF file as images."""
     logger.info(f"Extracting all pages as images from file: {file_upload.name}")
     pdf_pages = []
     with pdfplumber.open(file_upload) as pdf:
@@ -177,14 +138,8 @@ def extract_all_pages_as_images(file_upload) -> List[Any]:
     logger.info("PDF pages extracted as images")
     return pdf_pages
 
-
 def delete_vector_db(vector_db: Optional[Chroma]) -> None:
-    """
-    Delete the vector database and clear related session state.
-
-    Args:
-        vector_db (Optional[Chroma]): The vector database to be deleted.
-    """
+    """Delete the vector database and clear related session state."""
     logger.info("Deleting vector DB")
     if vector_db is not None:
         vector_db.delete_collection()
@@ -198,15 +153,12 @@ def delete_vector_db(vector_db: Optional[Chroma]) -> None:
         st.error("No vector database found to delete.")
         logger.warning("Attempted to delete vector DB, but none was found")
 
-
 def main() -> None:
-    """
-    Main function to run the Streamlit application.
-    """
+    """Main function to run the Streamlit application."""
     st.subheader("🧠 Ollama PDF RAG playground", divider="gray", anchor=False)
 
-    # Get available models
-    models_info = ollama.list()
+    # Get available models (using mock for Streamlit Cloud)
+    models_info = mock_ollama_list()
     available_models = extract_model_names(models_info)
 
     # Create layout
@@ -349,7 +301,6 @@ def main() -> None:
         else:
             if st.session_state["vector_db"] is None:
                 st.warning("Upload a PDF file or use the sample PDF to begin chat...")
-
 
 if __name__ == "__main__":
     main()
