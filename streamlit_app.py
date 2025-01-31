@@ -317,6 +317,7 @@ def run():
                     embeddings, model = generate_word2vec_embeddings(chunks)
                     store_embeddings_in_faiss(embeddings, match['page_number'], match['surrounding_context'])
 
+
             # Display results for matched pages and keywords
             if filtered_results:
                 page_images = display_pdf_pages("temp.pdf", filtered_results.keys(), selected_keywords)
@@ -324,6 +325,23 @@ def run():
                     with st.expander(f"Results for '{keyword}'"):
                         for page, match_list in matches.items():
                             st.markdown(f"### **Page {page}:**")
+                            
+                            # Display the image of the page
+                            if page in page_images:
+                                st.image(page_images[page], caption=f"Page {page}", use_column_width=True)
+
+                            for match in match_list:
+                                st.markdown(f"#### **Matched Sentence on Page {match['page_number']}:**")
+                                st.markdown(f"<p style='color: #00C0F9;'>{match['sentence']}</p>", unsafe_allow_html=True)
+                                st.write("**Context**: ")
+                                for context_sentence in match['surrounding_context']:
+                                    st.write(f"  - {context_sentence}")
+
+            else:
+                st.warning("No matches found for the selected keywords.")
+        else:
+            st.warning("Please upload a PDF file.")
+
                             
 
 if __name__ == "__main__":
