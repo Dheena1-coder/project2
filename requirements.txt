@@ -11,4 +11,5 @@ openpyxl
 requests
 frontend
 PyMuPDF
-faiss
+faiss-cpu
+numpy
