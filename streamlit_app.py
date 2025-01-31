@@ -135,11 +135,14 @@ def store_embeddings_in_faiss(embeddings, page_number, context):
     Store the embeddings in FAISS index and metadata in a dictionary.
     """
     global index
-    for idx, (chunk, embedding) in enumerate(embeddings.items()):
-        # Convert the embedding to numpy array and add it to the FAISS index
+    for idx, embedding in embeddings.items():
         embedding_np = np.array(embedding, dtype=np.float32).reshape(1, -1)
-        index.add(embedding_np)
-
+        
+        # Check the shape of the embedding being added to FAISS
+        st.write(f"Adding embedding to FAISS with shape: {embedding_np.shape}")
+        
+        index.add(embedding_np)  # Add to FAISS index
+        
         # Store metadata to retrieve relevant context later
         if page_number not in metadata_store:
             metadata_store[page_number] = []
@@ -147,6 +150,10 @@ def store_embeddings_in_faiss(embeddings, page_number, context):
             'keyword': context[idx],
             'embedding_idx': len(index) - 1  # Index of the embedding in FAISS
         })
+    
+    # Debugging: Check the number of items in the FAISS index
+    st.write(f"FAISS index now contains {index.ntotal} items.")
+
 
 
 # Function to search for query using FAISS
@@ -154,31 +161,33 @@ def search_faiss(query, k=5):
     """
     Query the FAISS index to find the most similar context for the user's input query.
     """
-    query_embedding = get_embeddings([query])
-
-    # Log the query embedding to debug
+    query_embedding = get_embeddings([query])  # Generate the query embedding
+    
+    # Debugging: Print out the query embedding
     st.write(f"Query embedding: {query_embedding}")
-
+    
     if len(query_embedding) == 0:
         st.warning("Query did not generate valid embeddings.")
         return []
 
     # Perform the search on FAISS index
-    D, I = index.search(np.array(query_embedding, dtype=np.float32), k)
+    D, I = index.search(np.array(query_embedding, dtype=np.float32), k)  # FAISS search
     
-    if I.shape[1] == 0:
-        st.warning("No results found in FAISS index.")
-        return []
+    # Log the results of the FAISS search
+    st.write(f"FAISS search distances: {D}")  # Debugging output
+    st.write(f"FAISS search indices: {I}")  # Debugging output
 
     results = []
     for i, idx in enumerate(I[0]):
-        # Retrieve the corresponding context and keyword
-        metadata = metadata_store.get(idx, [])
-        results.extend(metadata)
-
-    # Log the retrieved results for debugging
-    st.write(f"Retrieved {len(results)} results from FAISS.")
+        if idx >= 0:  # Ensure that we have valid index values
+            metadata = metadata_store.get(idx, [])
+            results.extend(metadata)
+    
+    if len(results) == 0:
+        st.warning(f"No results found for query '{query}' in FAISS.")
+    
     return results
+
 
 
 
@@ -187,16 +196,30 @@ def get_embeddings(texts):
     Generate embeddings for the given texts using the Word2Vec model.
     """
     embeddings = []
-    model = Word2Vec.load("word2vec_model")  # Load pre-trained Word2Vec model
+    model = Word2Vec.load("word2vec_model")  # Ensure you're loading a valid Word2Vec model
+    
+    # Debugging: Print out model vocab and check if it contains the tokens
+    st.write(f"Word2Vec model vocab: {model.wv.index_to_key[:20]}")  # Print first 20 words in vocab
 
     for text in texts:
         tokens = word_tokenize(text)
-        # Ensure we handle the case where the tokens are empty
-        if tokens:
-            embeddings.append(model.wv[tokens])
-        else:
-            embeddings.append(np.zeros(model.vector_size))  # Handle empty text case by adding zeros
 
+        # Debugging: Print out the tokens for each query
+        st.write(f"Tokens for query: {tokens}")
+        
+        if tokens:
+            try:
+                # Generate the embedding for the tokens
+                embedding = model.wv[tokens]
+                embeddings.append(embedding)
+            except KeyError as e:
+                st.write(f"KeyError: Token '{e.args[0]}' not found in Word2Vec model.")
+                embeddings.append(np.zeros(model.vector_size))  # If token is not in model, add zero embedding
+        else:
+            embeddings.append(np.zeros(model.vector_size))  # Use zero embedding for empty query
+        
+    # Debugging: Check the generated embeddings
+    st.write(f"Generated embeddings for query: {embeddings}")
     return embeddings
 
 
