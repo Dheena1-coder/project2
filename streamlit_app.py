@@ -84,7 +84,7 @@ def build_vector_database(embeddings):
 # Function to retrieve context based on user query
 def retrieve_context(query, text_chunks, index):
     query_embedding = model.encode([query])
-    distances, indices = index.search(query_embedding, k=3)
+    distances, indices = index.search(query_embedding, k=5)
     return [(text_chunks[i][0], text_chunks[i][1], text_chunks[i][2], distances[0][j]) for j, i in enumerate(indices[0])]
 
 # Function to highlight matching words in the PDF
