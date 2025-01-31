@@ -191,39 +191,36 @@ def main():
 
         selected_keywords = list(set(selected_keywords))  # Remove duplicates after adding extra keywords
         st.write(selected_keywords)
-
-        if pdf_file:
-            text_chunks, doc = extract_pdf_content(pdf_file)  # Extract text and word positions
-            embeddings = create_embeddings(text_chunks)
-            index = build_vector_database(embeddings)
+        # Calculate keyword statistics
+        keyword_stats = calculate_keyword_statistics(text_chunks, selected_keywords)
             
-            # Calculate keyword statistics
-            keyword_stats = calculate_keyword_statistics(text_chunks, selected_keywords)
+        # Display keyword statistics
+        st.write("### Keyword Statistics")
+        stats_data = []
+        for keyword, stats in keyword_stats.items():
+            stats_data.append([keyword, stats['occurrences'], sorted(list(stats['pages']))])
             
-            # Display keyword statistics
-            st.write("### Keyword Statistics")
-            stats_data = []
-            for keyword, stats in keyword_stats.items():
-                stats_data.append([keyword, stats['occurrences'], sorted(list(stats['pages']))])
-            
-            stats_df = pd.DataFrame(stats_data, columns=["Keyword", "Occurrences", "Pages"])
-            st.dataframe(stats_df)
-            
-            # User input query
-            query = st.text_input("Enter your query:")
-            if query:
-                results = retrieve_context(query, text_chunks, index)
-                for result in results:
-                    # Display relevant text with page number
-                    st.write(f"**Page {result[1]}**: {result[0]}")  # Display relevant sentence
-                    page_number = result[1]
+        stats_df = pd.DataFrame(stats_data, columns=["Keyword", "Occurrences", "Pages"])
+        st.dataframe(stats_df)
+    if pdf_file:
+        text_chunks, doc = extract_pdf_content(pdf_file)  # Extract text and word positions
+        embeddings = create_embeddings(text_chunks)
+        index = build_vector_database(embeddings)            
+        # User input query
+        query = st.text_input("Enter your query:")
+        if query:
+            results = retrieve_context(query, text_chunks, index)
+            for result in results:
+                # Display relevant text with page number
+                st.write(f"**Page {result[1]}**: {result[0]}")  # Display relevant sentence
+                page_number = result[1]
                     
-                    # Highlight matching words and generate image of the page
-                    doc_with_highlights = highlight_text_on_pdf(doc, query, page_number)
-                    highlighted_image = page_to_image_with_highlights(doc_with_highlights, page_number)
+                # Highlight matching words and generate image of the page
+                doc_with_highlights = highlight_text_on_pdf(doc, query, page_number)
+                highlighted_image = page_to_image_with_highlights(doc_with_highlights, page_number)
                     
                     # Display the page with highlights
-                    st.image(highlighted_image, caption=f"Highlighted Page {page_number}")
+                st.image(highlighted_image, caption=f"Highlighted Page {page_number}")
 
 if __name__ == "__main__":
     main()
