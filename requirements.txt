@@ -14,3 +14,4 @@ PyMuPDF
 faiss-cpu
 numpy
 sentence-transformers
+PyPDF2
