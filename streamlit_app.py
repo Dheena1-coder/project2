@@ -58,30 +58,6 @@ def extract_keyword_info(pdf_path, keywords, surrounding_sentences_count=2):
     return extracted_data
 
 
-# Function to highlight keywords on a PDF page
-def highlight_pdf_page(pdf_path, page_number, keywords):
-    """Highlight keywords in the PDF page using rectangles"""
-    doc = fitz.open(pdf_path)
-    page = doc.load_page(page_number - 1)  # Page numbers are 1-based, so adjust for 0-based indexing
-
-    # Loop through each keyword to find and highlight occurrences
-    for keyword in keywords:
-        text_instances = page.search_for(keyword)  # Find the keyword locations in the text
-
-        for inst in text_instances:
-            # Create a rectangle based on the text instance
-            rect = fitz.Rect(inst)
-            # Draw a neon green rectangle around the keyword (no fill)
-            page.draw_rect(rect, color=(0, 1, 0))
-
-    # Save the updated PDF with a unique name based on the timestamp
-    timestamp = int(time.time())  # Get current timestamp
-    highlighted_pdf_path = f"temp_highlighted_page_{timestamp}.pdf"
-    doc.save(highlighted_pdf_path)
-
-    return highlighted_pdf_path
-
-
 # Function to tokenize text and prepare chunks for embeddings
 def tokenize_and_chunk(text, chunk_size=20):
     tokens = word_tokenize(text)
@@ -116,6 +92,7 @@ def store_embeddings_in_faiss(embeddings, page_number, context):
             'embedding_idx': len(index) - 1  # Index of the embedding in FAISS
         })
 
+    print(f"Stored {len(embeddings)} embeddings for page {page_number}.")
 
 # Function to search for query using FAISS
 def search_faiss(query, k=5):
@@ -124,87 +101,21 @@ def search_faiss(query, k=5):
     """
     model = SentenceTransformer('all-MiniLM-L6-v2')  # Load sentence transformer model
     query_embedding = model.encode([query])  # Get query embedding
-    
+
     # Perform the search on FAISS index
     D, I = index.search(np.array(query_embedding, dtype=np.float32), k)
+    
+    print(f"Query '{query}' results:")
+    print(D)  # Distance scores of the closest embeddings
+    print(I)  # Indices of the closest embeddings
     
     results = []
     for i, idx in enumerate(I[0]):
         # Retrieve the corresponding context and keyword
-        metadata = metadata_store[idx]
-        results.append(metadata)
+        metadata = metadata_store.get(idx, None)
+        if metadata:
+            results.append(metadata)
     return results
-
-
-# Function to display keyword stats in a table
-def display_keyword_stats(filtered_results, keywords):
-    stats_data = []
-    for keyword in keywords:
-        pages_found = [page for page, matches in filtered_results.items() if any(keyword.lower() in match['sentence'].lower() for match in matches)]
-        stats_data.append([keyword, len(pages_found), pages_found])
-
-    stats_df = pd.DataFrame(stats_data, columns=["Keyword", "Occurrences", "Pages"])
-    st.write("### Keyword Statistics")
-    st.dataframe(stats_df)
-
-
-# Function to display PDF pages and highlight the keyword occurrences
-def display_pdf_pages(pdf_path, pages_with_matches, keywords):
-    doc = fitz.open(pdf_path)
-
-    images = {}
-
-    for i in range(len(doc)):
-        if i + 1 in pages_with_matches:
-            highlighted_pdf = highlight_pdf_page(pdf_path, i + 1, keywords)
-
-            doc_highlighted = fitz.open(highlighted_pdf)
-            page_highlighted = doc_highlighted.load_page(i)
-
-            pix = page_highlighted.get_pixmap(dpi=300)
-            pil_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
-            enhancer = ImageEnhance.Contrast(pil_image)
-            pil_image = enhancer.enhance(1.5)
-
-            img_byte_arr = BytesIO()
-            pil_image.save(img_byte_arr, format="PNG")
-            img_byte_arr.seek(0)
-
-            images[i + 1] = img_byte_arr
-    
-    return images
-
-
-# Load the SFDR and Asset Keyword data from GitHub (URLs directly)
-def load_keywords_from_github(url):
-    df = pd.read_excel(url, engine='openpyxl')  
-    return df
-
-
-# Process data into dictionary
-def process_keywords_to_dict(df, team_type):
-    keyword_dict = {}
-    for index, row in df.iterrows():
-        indicator = row['SFDR Indicator'] if team_type == 'sfdr' else row['Asset Type']
-        datapoint_name = row['Datapoint Name']
-        keywords = row['Keywords'].split(',')
-        keywords = [keyword.strip() for keyword in keywords]
-
-        if indicator not in keyword_dict:
-            keyword_dict[indicator] = {}
-
-        if datapoint_name not in keyword_dict[indicator]:
-            keyword_dict[indicator][datapoint_name] = []
-
-        keyword_dict[indicator][datapoint_name].extend(keywords)
-
-    # Optional: Remove duplicates within each list of keywords for each Datapoint Name
-    for indicator in keyword_dict:
-        for datapoint in keyword_dict[indicator]:
-            keyword_dict[indicator][datapoint] = list(set(keyword_dict[indicator][datapoint]))
-
-    return keyword_dict
 
 
 # Streamlit UI
@@ -216,62 +127,36 @@ def run():
     # Upload PDF file
     pdf_file = st.file_uploader("Upload PDF file", type=["pdf"])    
 
-    # URLs of the GitHub Excel files (update with actual raw GitHub links)
-    sfdr_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/sfdr_file.xlsx"  # Replace with actual SFDR Excel file URL
-    asset_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/asset_file.xlsx"  # Replace with actual Asset Excel file URL
+    # Example keyword list (for testing purposes)
+    keywords = ["sustainability", "investment", "asset", "green"]
 
-    # Load and process the keyword dictionaries
-    sfdr_df = load_keywords_from_github(sfdr_file_url)
-    asset_df = load_keywords_from_github(asset_file_url)
-
-    sfdr_keywords_dict = process_keywords_to_dict(sfdr_df, 'sfdr')
-    asset_keywords_dict = process_keywords_to_dict(asset_df, 'assets')
-
-    # Create dropdown for team selection
-    team_type = st.selectbox("Select Team", ["sfdr", "physical assets"])
-
-    # Display appropriate keyword dictionary based on team selection
-    if team_type == "sfdr":
-        indicators = list(sfdr_keywords_dict.keys())
-    else:
-        indicators = list(asset_keywords_dict.keys())
-    
-    indicator = st.selectbox("Select Indicator", indicators)
-    if team_type == "sfdr":
-        datapoints = list(sfdr_keywords_dict[indicator].keys())
-    else:
-        datapoints = list(asset_keywords_dict[indicator].keys())
-
-    datapoint = st.selectbox("Select Datapoint", datapoints)
-
-    # Extract keywords
-    keywords = sfdr_keywords_dict[indicator][datapoint] if team_type == "sfdr" else asset_keywords_dict[indicator][datapoint]
-
-    # Input field for user query
-    query = st.text_input("Enter a query:")
-
-    # If PDF is uploaded
-    if pdf_file is not None and query:
-        # Read the PDF and extract keyword-related data
+    if pdf_file is not None:
+        # Extract keywords and context
         extracted_data = extract_keyword_info(pdf_file, keywords)
 
-        # Perform FAISS search with the user query
-        query_results = search_faiss(query)
+        # Store extracted context in FAISS
+        all_contexts = []
+        all_embeddings = []
 
-        # Display query results
-        st.write(f"### Query Results for: {query}")
-        for result in query_results:
-            st.write(result)
+        # Generate embeddings and store them
+        for page_num, matches in extracted_data.items():
+            page_text = " ".join([match["sentence"] for match in matches])
+            chunks = tokenize_and_chunk(page_text)
+            embeddings = generate_sentence_transformer_embeddings(chunks)
+            store_embeddings_in_faiss(embeddings, page_num, chunks)
 
-        # Display statistics
-        display_keyword_stats(extracted_data, keywords)
+        # Input field for user query
+        query = st.text_input("Enter a query:")
 
-        # Display PDF pages with highlighted keywords
-        pages_with_matches = extracted_data.keys()
-        images = display_pdf_pages(pdf_file, pages_with_matches, keywords)
+        # If query is entered, search in FAISS
+        if query:
+            # Perform FAISS search with the user query
+            query_results = search_faiss(query)
 
-        for page_number, img in images.items():
-            st.image(img, caption=f"Page {page_number}", use_column_width=True)
+            # Display query results
+            st.write(f"### Query Results for: {query}")
+            for result in query_results:
+                st.write(result)
 
 
 if __name__ == "__main__":
