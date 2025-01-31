@@ -36,21 +36,13 @@ def extract_pdf_content(pdf_file):
     # Open the saved temporary PDF using PyMuPDF
     doc = fitz.open(temp_file_path)
     text_chunks = []
-    images = []
     
-    # Extract text and images from the PDF
+    # Extract text from each page
     for page in doc:
-        text = page.get_text()
+        text = page.get_text()  # Extract text from the page
         text_chunks.extend(sent_tokenize(text))  # Tokenize text into sentences
-        
-        # Extract images using get_images() instead of get_image()
-        for img_index, img in enumerate(page.get_images(full=True)):
-            xref = img[0]  # The reference number for the image
-            base_image = fitz.Pixmap(doc, xref)  # Get the image pixmap using the xref
-            img_bytes = base_image.tobytes("png")  # Convert the image to PNG bytes
-            images.append(img_bytes)  # Append image bytes to the list
     
-    return text_chunks, images
+    return text_chunks, [] 
 
 # Function to create embeddings using sentence transformer
 def create_embeddings(text_chunks):
