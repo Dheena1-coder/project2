@@ -16,7 +16,7 @@ from gensim.models import Word2Vec
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
-nltk.download('punkt')
+nltk.download('punkt_tab')
 
 # Function to extract keyword information and surrounding context from PDF
 def extract_keyword_info(pdf_path, keywords, surrounding_sentences_count=2):
