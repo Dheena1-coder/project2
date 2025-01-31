@@ -58,7 +58,11 @@ def extract_keyword_info(pdf_path, keywords, surrounding_sentences_count=2):
 
     return extracted_data
 
-
+# Load the SFDR and Asset Keyword data from GitHub (URLs directly)
+def load_keywords_from_github(url):
+    # Load the Excel file directly from GitHub
+    df = pd.read_excel(url, engine='openpyxl')  
+    return df
 # Function to highlight keywords on a PDF page
 def highlight_pdf_page(pdf_path, page_number, keywords):
     """Highlight keywords in the PDF page using rectangles"""
