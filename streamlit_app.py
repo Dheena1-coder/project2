@@ -57,12 +57,17 @@ def retrieve_context(query, text_chunks, index):
 
 # Function to highlight matching words in the PDF
 # Function to highlight matching words in the PDF
-def highlight_text_on_pdf(doc, words, query, page_number):
+def highlight_text_on_pdf(doc, query, page_number):
     page = doc.load_page(page_number - 1)  # Page numbers are 0-indexed in PyMuPDF
-    for word in words:
-        if query.lower() in word[4].lower():  # word[4] is the text of the word
-            rect = fitz.Rect(word[:4])  # word[:4] gives the coordinates of the word
-            page.add_highlight_annot(rect)  # Add highlight annotation
+    
+    # Search for the query on the page
+    text_instances = page.search_for(query)  # This finds the exact position of the query in the page's text
+    
+    # Loop through all the instances and draw highlights around them
+    for inst in text_instances:
+        rect = fitz.Rect(inst)  # Create a rectangle based on the text instance
+        page.draw_rect(rect, color=(0, 1, 0), width=2)  # Draw a green rectangle around the keyword (no fill)
+    
     return doc
 
 # Function to convert page to image with highlights
@@ -92,7 +97,7 @@ def main():
                 page_number = result[1]
                 
                 # Highlight matching words and generate image of the page
-                doc_with_highlights = highlight_text_on_pdf(doc, result[2], query,page_number)
+                doc_with_highlights = highlight_text_on_pdf(doc, query,page_number)
                 highlighted_image = page_to_image_with_highlights(doc_with_highlights, page_number)
                 
                 # Display the page with highlights
