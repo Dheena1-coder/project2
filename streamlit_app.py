@@ -20,26 +20,21 @@ nltk.download('punkt_tab')
 
 # Function to extract keyword information and surrounding context from PDF
 def extract_keyword_info(pdf_path, keywords, surrounding_sentences_count=2):
-    keywords = [keyword.lower() for keyword in keywords]  # Convert keywords to lowercase
+    print(f"Extracting info for keywords: {keywords}")  # Debugging line
     extracted_data = {}
 
-    doc = fitz.open(pdf_path)
-
-    if len(doc) == 0:
-        raise ValueError("The uploaded PDF has no pages.")
-    
-    corpus = []  # Store all sentences for embedding generation
-
+    # Continue processing...
     for page_number in range(len(doc)):
         page = doc.load_page(page_number)
         text = page.get_text()
-
+        
         if text:
             sentences = sent_tokenize(text)
 
             matching_sentences = []
             for idx, sentence in enumerate(sentences):
                 if any(keyword in sentence.lower() for keyword in keywords):
+                    print(f"Match found on page {page_number + 1}: {sentence}")  # Debugging line
                     start_idx = max(0, idx - surrounding_sentences_count)
                     end_idx = min(len(sentences), idx + surrounding_sentences_count + 1)
                     surrounding = sentences[start_idx:end_idx]
@@ -54,7 +49,9 @@ def extract_keyword_info(pdf_path, keywords, surrounding_sentences_count=2):
             if matching_sentences:
                 extracted_data[page_number + 1] = matching_sentences
 
-    return extracted_data, corpus  # Return both matching data and corpus
+    print(f"Extracted data: {extracted_data}")  # Debugging line
+    return extracted_data, corpus
+
 # Function to process the keywords into a dictionary
 def process_keywords_to_dict(df, team_type):
     keyword_dict = {}
