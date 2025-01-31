@@ -35,8 +35,7 @@ uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 
 if uploaded_file is not None:
     text = extract_text_from_pdf(uploaded_file)
-    st.write("Extracted Text:")
-    st.write(text)
+
 
     texts = text.split("\n")
     index, vectorizer = create_vector_database(texts)
