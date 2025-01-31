@@ -22,7 +22,7 @@ index = faiss.IndexFlatL2(dimension)  # FAISS index for vector storage
 metadata_store = {}
 
 # Initialize NLTK resources
-nltk.download('punkt')
+nltk.download('punkt_tab')
 
 # Function to extract keyword information and surrounding context from PDF
 def extract_keyword_info(pdf_path, keywords, surrounding_sentences_count=2):
