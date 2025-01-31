@@ -24,10 +24,15 @@ def upload_pdf():
 
 # Function to extract text and images from PDF
 def extract_pdf_content(pdf_file):
-    doc = fitz.open(pdf_file)
+    # Convert the uploaded file (binary stream) to a BytesIO object
+    pdf_bytes = BytesIO(pdf_file.read())
+    
+    # Open the PDF using PyMuPDF
+    doc = fitz.open(pdf_bytes)
     text_chunks = []
     images = []
     
+    # Extract text and images from the PDF
     for page in doc:
         text = page.get_text()
         text_chunks.extend(sent_tokenize(text))  # Tokenize text into sentences
@@ -40,7 +45,6 @@ def extract_pdf_content(pdf_file):
             images.append(img_bytes)
     
     return text_chunks, images
-
 # Function to create embeddings using sentence transformer
 def create_embeddings(text_chunks):
     embeddings = model.encode(text_chunks)
