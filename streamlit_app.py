@@ -23,12 +23,18 @@ def upload_pdf():
     return None
 
 # Function to extract text and images from PDF
+import tempfile
+import fitz  # PyMuPDF
+
+# Function to extract text and images from PDF
 def extract_pdf_content(pdf_file):
-    # Convert the uploaded file (binary stream) to a BytesIO object
-    pdf_bytes = BytesIO(pdf_file.read())
-    
-    # Open the PDF using PyMuPDF
-    doc = fitz.open(pdf_bytes)
+    # Create a temporary file to save the uploaded PDF
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+        temp_file.write(pdf_file.read())
+        temp_file_path = temp_file.name  # Get the path to the temporary file
+        
+    # Open the saved temporary PDF using PyMuPDF
+    doc = fitz.open(temp_file_path)
     text_chunks = []
     images = []
     
@@ -45,6 +51,7 @@ def extract_pdf_content(pdf_file):
             images.append(img_bytes)
     
     return text_chunks, images
+
 # Function to create embeddings using sentence transformer
 def create_embeddings(text_chunks):
     embeddings = model.encode(text_chunks)
