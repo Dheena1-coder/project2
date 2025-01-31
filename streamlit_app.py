@@ -11,10 +11,15 @@ import nltk
 from nltk.tokenize import word_tokenize, sent_tokenize
 import gensim
 from gensim.models import Word2Vec
-import chromadb  # ChromaDB for vector storage
+import faiss
+import numpy as np
 
-# Initialize ChromaDB client
-client = chromadb.Client()
+# Initialize FAISS Index for storing embeddings
+dimension = 100  # The dimensionality of word2vec embeddings
+index = faiss.IndexFlatL2(dimension)  # FAISS index for vector storage
+
+# Store metadata (e.g., page numbers, context)
+metadata_store = {}
 
 # Initialize NLTK resources
 nltk.download('punkt')
@@ -96,28 +101,56 @@ def generate_word2vec_embeddings(chunks):
     return embeddings, model
 
 
-# Function to store embeddings in ChromaDB
-def store_embeddings_in_chromadb(embeddings, page_number, context):
-    collection = client.get_or_create_collection(name="pdf_keyword_embeddings")
-
-    # Add embeddings to ChromaDB
+# Function to store embeddings in FAISS
+def store_embeddings_in_faiss(embeddings, page_number, context):
+    """
+    Store the embeddings in FAISS index and metadata in a dictionary.
+    """
+    global index
     for idx, (chunk, embedding) in enumerate(embeddings.items()):
-        collection.add(
-            documents=[context[idx]],  # Add the corresponding text chunk
-            metadatas=[{"page_number": page_number}],
-            embeddings=[embedding]
-        )
+        # Convert the embedding to numpy array and add it to the FAISS index
+        embedding_np = np.array(embedding, dtype=np.float32).reshape(1, -1)
+        index.add(embedding_np)
+
+        # Store metadata to retrieve relevant context later
+        if page_number not in metadata_store:
+            metadata_store[page_number] = []
+        metadata_store[page_number].append({
+            'keyword': context[idx],
+            'embedding_idx': len(index) - 1  # Index of the embedding in FAISS
+        })
 
 
-# Function to search for query using ChromaDB
-def search_chromadb(query, collection, model):
-    # Convert the query into a Word2Vec embedding
-    query_tokens = word_tokenize(query)
-    query_embedding = model.wv[query_tokens]
-
-    # Perform similarity search
-    results = collection.query(query_embeddings=[query_embedding], n_results=5)
+# Function to search for query using FAISS
+def search_faiss(query, k=5):
+    """
+    Query the FAISS index to find the most similar context for the user's input query.
+    """
+    query_embedding = get_embeddings([query])
+    
+    # Perform the search on FAISS index
+    D, I = index.search(np.array(query_embedding, dtype=np.float32), k)
+    
+    results = []
+    for i, idx in enumerate(I[0]):
+        # Retrieve the corresponding context and keyword
+        metadata = metadata_store[idx]
+        results.append(metadata)
     return results
+
+
+def get_embeddings(texts):
+    """
+    Generate embeddings for the given texts using the Word2Vec model.
+    """
+    embeddings = []
+    model = Word2Vec.load("word2vec_model")  # Load pre-trained Word2Vec model
+
+    for text in texts:
+        tokens = word_tokenize(text)
+        embeddings.append(model.wv[tokens])
+
+    return embeddings
 
 
 # Function to display keyword stats in a table
@@ -282,7 +315,7 @@ def run():
                 for match in matches:
                     chunks = tokenize_and_chunk(match['sentence'])
                     embeddings, model = generate_word2vec_embeddings(chunks)
-                    store_embeddings_in_chromadb(embeddings, match['page_number'], match['surrounding_context'])
+                    store_embeddings_in_faiss(embeddings, match['page_number'], match['surrounding_context'])
 
             # Display results for matched pages and keywords
             if filtered_results:
@@ -292,22 +325,6 @@ def run():
                         for page, match_list in matches.items():
                             st.markdown(f"### **Page {page}:**")
                             
-                            # Display the image of the page
-                            if page in page_images:
-                                st.image(page_images[page], caption=f"Page {page}", use_column_width=True)
-
-                            for match in match_list:
-                                st.markdown(f"#### **Matched Sentence on Page {match['page_number']}:**")
-                                st.markdown(f"<p style='color: #00C0F9;'>{match['sentence']}</p>", unsafe_allow_html=True)
-                                st.write("**Context**: ")
-                                for context_sentence in match['surrounding_context']:
-                                    st.write(f"  - {context_sentence}")
-
-            else:
-                st.warning("No matches found for the selected keywords.")
-        else:
-            st.warning("Please upload a PDF file.")
-
 
 if __name__ == "__main__":
     run()
