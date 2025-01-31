@@ -305,3 +305,6 @@ def run():
                 st.warning("No matches found for the selected keywords.")
         else:
             st.warning("Please upload a PDF file.")
+
+if __name__ == "__main__":
+    run()
