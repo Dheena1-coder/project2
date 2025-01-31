@@ -11,108 +11,70 @@ import nltk
 from nltk.tokenize import word_tokenize, sent_tokenize
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer  # Import sentence transformer for embeddings
+from sentence_transformers import SentenceTransformer  
 
-# Load keywords from GitHub
-def load_keywords_from_github(url):
-    return pd.read_excel(url)
+# Load NLP model
+nlp = spacy.load("en_core_web_sm")
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# Process keywords to dictionary
-def process_keywords_to_dict(df, team):
-    return {row['Indicator']: {row['Datapoint']: row['Keywords'].split(',') for _, row in df.iterrows()} for _, row in df.iterrows()}
+# Function to upload PDF
+def upload_pdf():
+    uploaded_file = st.file_uploader("Upload PDF", type="pdf")
+    if uploaded_file is not None:
+        return uploaded_file
+    return None
 
-# Extract keyword information from PDF
-def extract_keyword_info(pdf_file, keywords):
-    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    extracted_data = {}
+# Function to extract text and images from PDF
+def extract_pdf_content(pdf_file):
+    doc = fitz.open(pdf_file)
+    text_chunks = []
+    images = []
+    
     for page in doc:
         text = page.get_text()
-        matches = {keyword: re.findall(r'\b' + re.escape(keyword) + r'\b', text) for keyword in keywords}
-        if any(matches.values()):
-            extracted_data[page.number] = matches
-    return extracted_data
-
-# Perform FAISS search
-def search_faiss(query):
-    # Placeholder for FAISS search implementation
-    return ["Result 1", "Result 2", "Result 3"]
-
-# Display keyword statistics
-def display_keyword_stats(extracted_data, keywords):
-    st.write("### Keyword Statistics")
-    for page, matches in extracted_data.items():
-        st.write(f"**Page {page + 1}**")
-        for keyword, occurrences in matches.items():
-            st.write(f"{keyword}: {len(occurrences)} occurrences")
-
-# Display PDF pages with highlighted keywords
-def display_pdf_pages(pdf_file, pages_with_matches, keywords):
-    doc = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    images = {}
-    for page_number in pages_with_matches:
-        page = doc[page_number]
-        img = page.get_pixmap()
-        img = Image.frombytes("RGB", [img.width, img.height], img.samples)
-        for keyword in keywords:
-            img = highlight_keyword(img, keyword)
-        images[page_number] = img
-    return images
-
-# Highlight keywords in the image
-def highlight_keyword(img, keyword):
-    # Placeholder for keyword highlighting implementation
-    return img
-
-# Streamlit UI
-def run():
-    st.title("📄 **PDF Keyword Extractor **")
-    st.markdown("This tool helps you extract text and their respective page from PDFs and search for specific keywords. The matched keywords will be highlighted in the pdf page and text along with their surrounding context.")
-
-    pdf_file = st.file_uploader("Upload PDF file", type=["pdf"])    
-
-    sfdr_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/sfdr_file.xlsx"
-    asset_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/asset_file.xlsx"
-
-    sfdr_df = load_keywords_from_github(sfdr_file_url)
-    asset_df = load_keywords_from_github(asset_file_url)
-
-    sfdr_keywords_dict = process_keywords_to_dict(sfdr_df, 'sfdr')
-    asset_keywords_dict = process_keywords_to_dict(asset_df, 'assets')
-
-    team_type = st.selectbox("Select Team", ["sfdr", "physical assets"])
-
-    if team_type == "sfdr":
-        indicators = list(sfdr_keywords_dict.keys())
-    else:
-        indicators = list(asset_keywords_dict.keys())
+        text_chunks.extend(sent_tokenize(text))
+        
+        for img_index in range(len(page.get_images(full=True))):
+            img = page.get_image(img_index)
+            base_image = fitz.Pixmap(doc, img[0])
+            img_bytes = base_image.tobytes("png")
+            images.append(img_bytes)
     
-    indicator = st.selectbox("Select Indicator", indicators)
-    if team_type == "sfdr":
-        datapoints = list(sfdr_keywords_dict[indicator].keys())
-    else:
-        datapoints = list(asset_keywords_dict[indicator].keys())
+    return text_chunks, images
 
-    datapoint = st.selectbox("Select Datapoint", datapoints)
+# Function to create embeddings
+def create_embeddings(text_chunks):
+    embeddings = model.encode(text_chunks)
+    return embeddings
 
-    keywords = sfdr_keywords_dict[indicator][datapoint] if team_type == "sfdr" else asset_keywords_dict[indicator][datapoint]
+# Function to build vector database
+def build_vector_database(embeddings):
+    index = faiss.IndexFlatL2(embeddings.shape[1])
+    index.add(embeddings)
+    return index
 
-    query = st.text_input("Enter a query:")
+# Function to retrieve context based on user query
+def retrieve_context(query, text_chunks, index):
+    query_embedding = model.encode([query])
+    distances, indices = index.search(query_embedding, k=5)
+    return [(text_chunks[i], distances[0][j]) for j, i in enumerate(indices[0])]
 
-    if pdf_file is not None and query:
-        extracted_data = extract_keyword_info(pdf_file, keywords)
-        query_results = search_faiss(query)
-
-        st.write(f"### Query Results for: {query}")
-        for result in query_results:
-            st.write(result)
-
-        display_keyword_stats(extracted_data, keywords)
-
-        pages_with_matches = extracted_data.keys()
-        images = display_pdf_pages(pdf_file, pages_with_matches, keywords)
-
-        for page_number, img in images.items():
-            st.image(img, caption=f"Page {page_number}", use_column_width=True)
+# Streamlit app
+def main():
+    st.title("PDF Context Retrieval System")
+    
+    pdf_file = upload_pdf()
+    if pdf_file:
+        text_chunks, images = extract_pdf_content(pdf_file)
+        embeddings = create_embeddings(text_chunks)
+        index = build_vector_database(embeddings)
+        
+        query = st.text_input("Enter your query:")
+        if query:
+            results = retrieve_context(query, text_chunks, index)
+            for result in results:
+                st.write(result[0])
+                st.image(images[results.index(result)], caption='Reference Image')
 
 if __name__ == "__main__":
-    run()
+    main()
