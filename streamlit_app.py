@@ -13,8 +13,16 @@ import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer  
 
-# Load NLP model
-nlp = spacy.load("en_core_web_sm")
+import spacy
+import subprocess
+
+# Check if the SpaCy model is installed, and install it if necessary
+try:
+    nlp = spacy.load("en_core_web_sm")
+except OSError:
+    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
+    nlp = spacy.load("en_core_web_sm")
+
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Function to upload PDF
