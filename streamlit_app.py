@@ -193,37 +193,6 @@ def display_pdf_pages(pdf_path, pages_with_matches, keywords):
     return images
 
 
-# Load the SFDR and Asset Keyword data from GitHub (URLs directly)
-def load_keywords_from_github(url):
-    df = pd.read_excel(url, engine='openpyxl')  
-    return df
-
-
-# Process data into dictionary
-def process_keywords_to_dict(df, team_type):
-    keyword_dict = {}
-    for index, row in df.iterrows():
-        indicator = row['SFDR Indicator'] if team_type == 'sfdr' else row['Asset Type']
-        datapoint_name = row['Datapoint Name']
-        keywords = row['Keywords'].split(',')
-        keywords = [keyword.strip() for keyword in keywords]
-
-        if indicator not in keyword_dict:
-            keyword_dict[indicator] = {}
-
-        if datapoint_name not in keyword_dict[indicator]:
-            keyword_dict[indicator][datapoint_name] = []
-
-        keyword_dict[indicator][datapoint_name].extend(keywords)
-
-    # Optional: Remove duplicates within each list of keywords for each Datapoint Name
-    for indicator in keyword_dict:
-        for datapoint in keyword_dict[indicator]:
-            keyword_dict[indicator][datapoint] = list(set(keyword_dict[indicator][datapoint]))
-
-    return keyword_dict
-
-
 # Streamlit UI
 def run():
     # Streamlit UI components
@@ -271,6 +240,7 @@ def run():
         step=1
     )   
 
+
     # If user submits
     if st.button("Submit"):
         # Extract relevant keywords based on the selected datapoint names
@@ -310,20 +280,17 @@ def run():
             # Display keyword stats
             display_keyword_stats(filtered_results, selected_keywords)
 
-        # Debugging section: Check what `match` actually is
-            for keyword, matches in keyword_results.items():
-                for page, match_list in matches.items():
-                    for match in match_list:
-                        st.write(f"DEBUG: Match type for {keyword} on page {page}: {type(match)}")  # Debug print
-                        st.write(f"DEBUG: Match content for {keyword} on page {page}: {match}")  # Debug print
+            # Let the user query each keyword
+            for keyword in selected_keywords:
+                query = st.text_input(f"Enter query for '{keyword}':")
+                if query:
+                    query_results = search_faiss(query, k=5)
 
-                        if isinstance(match, dict):  # Ensure `match` is a dictionar
-                            st.write(f"Match sentence: {match['sentence']}")
-                            chunks = tokenize_and_chunk(match['sentence'])
-                            embeddings, model = generate_word2vec_embeddings(chunks)
-                            store_embeddings_in_faiss(embeddings, match['page_number'], match['surrounding_context'])
-                        else:
-                            st.write("ERROR: Expected match to be a dictionary, but it's not.")
+                    st.write(f"Results for query '{query}':")
+                    for result in query_results:
+                        for match in result:
+                            st.write(f"Matched Context: {match['keyword']}")
+                            st.write(f"Page Number: {match['embedding_idx']}")  # You can use metadata to fetch the page and context
 
             # Display results for matched pages and keywords
             if filtered_results:
@@ -333,23 +300,8 @@ def run():
                         for page, match_list in matches.items():
                             st.markdown(f"### **Page {page}:**")
                             
-                            # Display the image of the page
-                            if page in page_images:
-                                st.image(page_images[page], caption=f"Page {page}", use_column_width=True)
-
-                            for match in match_list:
-                                st.markdown(f"#### **Matched Sentence on Page {match['page_number']}:**")
-                                st.markdown(f"<p style='color: #00C0F9;'>{match['sentence']}</p>", unsafe_allow_html=True)
-                                st.write("**Context**: ")
-                                for context_sentence in match['surrounding_context']:
-                                    st.write(f"  - {context_sentence}")
 
             else:
                 st.warning("No matches found for the selected keywords.")
         else:
             st.warning("Please upload a PDF file.")
-
-                            
-
-if __name__ == "__main__":
-    run()
