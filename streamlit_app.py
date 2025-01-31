@@ -310,13 +310,20 @@ def run():
             # Display keyword stats
             display_keyword_stats(filtered_results, selected_keywords)
 
-            # Tokenize, chunk, and generate embeddings
+        # Debugging section: Check what `match` actually is
             for keyword, matches in keyword_results.items():
-                for match in matches:
-                    chunks = tokenize_and_chunk(match['sentence'])
-                    embeddings, model = generate_word2vec_embeddings(chunks)
-                    store_embeddings_in_faiss(embeddings, match['page_number'], match['surrounding_context'])
+                for page, match_list in matches.items():
+                    for match in match_list:
+                        st.write(f"DEBUG: Match type for {keyword} on page {page}: {type(match)}")  # Debug print
+                        st.write(f"DEBUG: Match content for {keyword} on page {page}: {match}")  # Debug print
 
+                        if isinstance(match, dict):  # Ensure `match` is a dictionar
+                            st.write(f"Match sentence: {match['sentence']}")
+                            chunks = tokenize_and_chunk(match['sentence'])
+                            embeddings, model = generate_word2vec_embeddings(chunks)
+                            store_embeddings_in_faiss(embeddings, match['page_number'], match['surrounding_context'])
+                        else:
+                            st.write("ERROR: Expected match to be a dictionary, but it's not.")
 
             # Display results for matched pages and keywords
             if filtered_results:
