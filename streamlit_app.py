@@ -155,16 +155,31 @@ def search_faiss(query, k=5):
     Query the FAISS index to find the most similar context for the user's input query.
     """
     query_embedding = get_embeddings([query])
-    
+
+    # Log the query embedding to debug
+    st.write(f"Query embedding: {query_embedding}")
+
+    if len(query_embedding) == 0:
+        st.warning("Query did not generate valid embeddings.")
+        return []
+
     # Perform the search on FAISS index
     D, I = index.search(np.array(query_embedding, dtype=np.float32), k)
     
+    if I.shape[1] == 0:
+        st.warning("No results found in FAISS index.")
+        return []
+
     results = []
     for i, idx in enumerate(I[0]):
         # Retrieve the corresponding context and keyword
-        metadata = metadata_store[idx]
-        results.append(metadata)
+        metadata = metadata_store.get(idx, [])
+        results.extend(metadata)
+
+    # Log the retrieved results for debugging
+    st.write(f"Retrieved {len(results)} results from FAISS.")
     return results
+
 
 
 def get_embeddings(texts):
@@ -176,9 +191,14 @@ def get_embeddings(texts):
 
     for text in texts:
         tokens = word_tokenize(text)
-        embeddings.append(model.wv[tokens])
+        # Ensure we handle the case where the tokens are empty
+        if tokens:
+            embeddings.append(model.wv[tokens])
+        else:
+            embeddings.append(np.zeros(model.vector_size))  # Handle empty text case by adding zeros
 
     return embeddings
+
 
 
 # Function to display keyword stats in a table
@@ -311,14 +331,20 @@ def run():
             # Let the user query each keyword
             for keyword in selected_keywords:
                 query = st.text_input(f"Enter query for '{keyword}':")
+# After the user inputs the query and presses submit
                 if query:
                     query_results = search_faiss(query, k=5)
+                # If no results are found
+                    if len(query_results) == 0:
+                        st.warning(f"No similar context found for the query '{query}'.")
 
-                    st.write(f"Results for query '{query}':")
-                    for result in query_results:
-                        for match in result:
-                            st.write(f"Matched Context: {match['keyword']}")
-                            st.write(f"Page Number: {match['embedding_idx']}")  # You can use metadata to fetch the page and context
+                # Display results if foun
+                    else:
+                        st.write(f"Results for query '{query}':")
+                        for result in query_results:
+                            st.write(f"Matched Context: {result['keyword']}")
+                            st.write(f"Page Number: {result['embedding_idx']}")  # You can use metadata to fetch the page and context
+ # You can use metadata to fetch the page and context
 
             # Display results for matched pages and keywords
             if filtered_results:
