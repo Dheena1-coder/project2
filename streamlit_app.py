@@ -1,5 +1,4 @@
 import fitz  # PyMuPDF
-import spacy
 import re
 import streamlit as st
 import pandas as pd
@@ -13,16 +12,7 @@ import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer  
 
-import spacy
-import subprocess
-
-# Check if the SpaCy model is installed, and install it if necessary
-try:
-    nlp = spacy.load("en_core_web_sm")
-except OSError:
-    subprocess.run(["python", "-m", "spacy", "download", "en_core_web_sm"])
-    nlp = spacy.load("en_core_web_sm")
-
+# Load the transformer model for embeddings
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Function to upload PDF
@@ -40,8 +30,9 @@ def extract_pdf_content(pdf_file):
     
     for page in doc:
         text = page.get_text()
-        text_chunks.extend(sent_tokenize(text))
+        text_chunks.extend(sent_tokenize(text))  # Tokenize text into sentences
         
+        # Extract images
         for img_index in range(len(page.get_images(full=True))):
             img = page.get_image(img_index)
             base_image = fitz.Pixmap(doc, img[0])
@@ -50,12 +41,12 @@ def extract_pdf_content(pdf_file):
     
     return text_chunks, images
 
-# Function to create embeddings
+# Function to create embeddings using sentence transformer
 def create_embeddings(text_chunks):
     embeddings = model.encode(text_chunks)
     return embeddings
 
-# Function to build vector database
+# Function to build the vector database for similarity search
 def build_vector_database(embeddings):
     index = faiss.IndexFlatL2(embeddings.shape[1])
     index.add(embeddings)
@@ -71,18 +62,20 @@ def retrieve_context(query, text_chunks, index):
 def main():
     st.title("PDF Context Retrieval System")
     
+    # Upload the PDF file
     pdf_file = upload_pdf()
     if pdf_file:
         text_chunks, images = extract_pdf_content(pdf_file)
         embeddings = create_embeddings(text_chunks)
         index = build_vector_database(embeddings)
         
+        # User input query
         query = st.text_input("Enter your query:")
         if query:
             results = retrieve_context(query, text_chunks, index)
             for result in results:
-                st.write(result[0])
-                st.image(images[results.index(result)], caption='Reference Image')
+                st.write(result[0])  # Display relevant text
+                st.image(images[results.index(result)], caption='Reference Image')  # Display related image
 
 if __name__ == "__main__":
     main()
