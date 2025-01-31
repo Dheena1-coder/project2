@@ -44,8 +44,9 @@ if uploaded_file is not None:
     
     if user_query:
         query_vector = vectorizer.transform([user_query]).toarray().astype('float32')
-        D, I = index.search(query_vector, k=5)
+        D, I = index.search(query_vector, k=3)
         
         st.write("Top Matches:")
         for i in range(len(I[0])):
             st.write(f"Match {i+1}: Page {I[0][i]}, Score: {D[0][i]}")
+            st.write(f"Context: {texts[I[0][i]]}")
