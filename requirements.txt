@@ -13,3 +13,4 @@ frontend
 PyMuPDF
 faiss-cpu
 numpy
+sentence-transformers
