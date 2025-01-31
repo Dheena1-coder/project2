@@ -133,6 +133,7 @@ def main():
     
     # Upload the PDF file
     pdf_file = upload_pdf()
+    
     # URLs of the GitHub Excel files (update with actual raw GitHub links)
     sfdr_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/sfdr_file.xlsx"  # Replace with actual SFDR Excel file URL
     asset_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/asset_file.xlsx"  # Replace with actual Asset Excel file URL
@@ -163,68 +164,57 @@ def main():
     
     # Keyword Text Area: Allow users to add additional keywords
     extra_keywords_input = st.text_area("Additional Keywords (comma-separated)", "")
-    surrounding_sentences_count = st.slider(
-        "Select the number of surrounding sentences to show:",
-        min_value=1,
-        max_value=5,
-        value=2,
-        step=1
-    )   
     
-    # If user submits
-    if st.button("Submit"):
-        # Extract relevant keywords based on the selected datapoint names
-        selected_keywords = []
-        if team_type == "sfdr":
-            for datapoint in datapoint_name:
-                selected_keywords.extend(sfdr_keywords_dict[indicator].get(datapoint, []))
-        else:
-            for datapoint in datapoint_name:
-                selected_keywords.extend(asset_keywords_dict[indicator].get(datapoint, []))
+    # Extract relevant keywords based on the selected datapoint names
+    selected_keywords = []
+    if team_type == "sfdr":
+        for datapoint in datapoint_name:
+            selected_keywords.extend(sfdr_keywords_dict[indicator].get(datapoint, []))
+    else:
+        for datapoint in datapoint_name:
+            selected_keywords.extend(asset_keywords_dict[indicator].get(datapoint, []))
 
-        selected_keywords = list(set(selected_keywords))  # Remove duplicates
+    selected_keywords = list(set(selected_keywords))  # Remove duplicates
+    
+    # Add any extra keywords entered in the text area
+    if extra_keywords_input:
+        extra_keywords = [keyword.strip() for keyword in extra_keywords_input.split(',')]
+        selected_keywords.extend(extra_keywords)
+
+    selected_keywords = list(set(selected_keywords))  # Remove duplicates after adding extra keywords
+    st.write(selected_keywords)
+    # Calculate keyword statistics
+    keyword_stats = calculate_keyword_statistics(text_chunks, selected_keywords)
         
-        # Add any extra keywords entered in the text area
-        if extra_keywords_input:
-            extra_keywords = [keyword.strip() for keyword in extra_keywords_input.split(',')]
-            selected_keywords.extend(extra_keywords)
+    # Display keyword statistics
+    st.write("### Keyword Statistics")
+    stats_data = []
+    for keyword, stats in keyword_stats.items():
+        stats_data.append([keyword, stats['occurrences'], sorted(list(stats['pages']))])
+        
+    stats_df = pd.DataFrame(stats_data, columns=["Keyword", "Occurrences", "Pages"])
+    st.dataframe(stats_df)
+    # Ensure the PDF file is loaded and text chunks are extracted after the upload
+    if pdf_file:
+        text_chunks, doc = extract_pdf_content(pdf_file)  # Extract text and word positions
+        embeddings = create_embeddings(text_chunks)
+        index = build_vector_database(embeddings)  
+        # User input query
+        query = st.text_input("Enter your query:")
+        if query:
+            results = retrieve_context(query, text_chunks, index)
+            for result in results:
+                # Display relevant text with page number
+                st.write(f"**Page {result[1]}**: {result[0]}")  # Display relevant sentence
+                page_number = result[1]
+                
+                # Highlight matching words and generate image of the page
+                doc_with_highlights = highlight_text_on_pdf(doc, query, page_number)
+                highlighted_image = page_to_image_with_highlights(doc_with_highlights, page_number)
+                
+                # Display the page with highlights
+                st.image(highlighted_image, caption=f"Highlighted Page {page_number}")
 
-        selected_keywords = list(set(selected_keywords))  # Remove duplicates after adding extra keywords
-        st.write(selected_keywords)
-
-        # Ensure the PDF file is loaded and text chunks are extracted after the upload
-        if pdf_file:
-            text_chunks, doc = extract_pdf_content(pdf_file)  # Extract text and word positions
-            embeddings = create_embeddings(text_chunks)
-            index = build_vector_database(embeddings)  
-
-            # Calculate keyword statistics
-            keyword_stats = calculate_keyword_statistics(text_chunks, selected_keywords)
-            
-            # Display keyword statistics
-            st.write("### Keyword Statistics")
-            stats_data = []
-            for keyword, stats in keyword_stats.items():
-                stats_data.append([keyword, stats['occurrences'], sorted(list(stats['pages']))])
-            
-            stats_df = pd.DataFrame(stats_data, columns=["Keyword", "Occurrences", "Pages"])
-            st.dataframe(stats_df)
-
-            # User input query
-            query = st.text_input("Enter your query:")
-            if query:
-                results = retrieve_context(query, text_chunks, index)
-                for result in results:
-                    # Display relevant text with page number
-                    st.write(f"**Page {result[1]}**: {result[0]}")  # Display relevant sentence
-                    page_number = result[1]
-                    
-                    # Highlight matching words and generate image of the page
-                    doc_with_highlights = highlight_text_on_pdf(doc, query, page_number)
-                    highlighted_image = page_to_image_with_highlights(doc_with_highlights, page_number)
-                    
-                    # Display the page with highlights
-                    st.image(highlighted_image, caption=f"Highlighted Page {page_number}")
 
 if __name__ == "__main__":
     main()
