@@ -70,7 +70,16 @@ def extract_keyword_info(pdf_path, keywords, surrounding_sentences_count=2):
     if not extracted_data:
         print("No matches found for the provided keywords.")  # Debugging
     return extracted_data, corpus  # Return both matching data and corpus
-s
+def display_keyword_stats(filtered_results, keywords):
+    stats_data = []
+    for keyword in keywords:
+        pages_found = [page for page, matches in filtered_results.items() if any(keyword.lower() in match['sentence'].lower() for match in matches)]
+        stats_data.append([keyword, len(pages_found), pages_found])
+
+    stats_df = pd.DataFrame(stats_data, columns=["Keyword", "Occurrences", "Pages"])
+    st.write("### Keyword Statistics")
+    st.dataframe(stats_df)
+
 
 # Function to process the keywords into a dictionary
 def process_keywords_to_dict(df, team_type):
@@ -203,7 +212,19 @@ def run():
             st.write("PDF file uploaded successfully.")
             with open("temp.pdf", "wb") as f:
                 f.write(pdf_file.getbuffer())
+            keyword_results = {}
+            for keyword in selected_keywords:
+                keyword_results[keyword] = extract_keyword_info("temp.pdf", [keyword],surrounding_sentences_count)
 
+            filtered_results = {}
+            for keyword, matches in keyword_results.items():
+                for page, match_list in matches.items():
+                    if page not in filtered_results:
+                        filtered_results[page] = []
+                    filtered_results[page].extend(match_list)
+
+            # Display keyword stats
+            display_keyword_stats(filtered_results, selected_keywords)
             # Extract keyword information and context
             keyword_results, corpus = extract_keyword_info("temp.pdf", selected_keywords, surrounding_sentences_count)
 
