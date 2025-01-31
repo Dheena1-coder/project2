@@ -38,27 +38,39 @@ def extract_keyword_info(pdf_path, keywords, surrounding_sentences_count=2):
         page = doc.load_page(page_number)
         text = page.get_text()
 
-        if text:
-            sentences = sent_tokenize(text)
+        # Debugging: Check if text extraction was successful
+        if not text.strip():
+            print(f"Page {page_number + 1} has no extractable text.")
+            continue
 
-            matching_sentences = []
-            for idx, sentence in enumerate(sentences):
-                if any(keyword in sentence.lower() for keyword in keywords):
-                    start_idx = max(0, idx - surrounding_sentences_count)
-                    end_idx = min(len(sentences), idx + surrounding_sentences_count + 1)
-                    surrounding = sentences[start_idx:end_idx]
-                    highlighted_sentence = highlight_keywords(sentence, keywords)
-                    matching_sentences.append({
-                        "sentence": highlighted_sentence,
-                        "surrounding_context": surrounding,
-                        "page_number": page_number + 1
-                    })
-                    corpus.append(sentence)  # Add sentences to corpus for embedding
+        # Tokenize the text into sentences
+        sentences = sent_tokenize(text)
+        print(f"Page {page_number + 1}: Extracted {len(sentences)} sentences.")  # Debugging
 
-            if matching_sentences:
-                extracted_data[page_number + 1] = matching_sentences
+        matching_sentences = []
+        for idx, sentence in enumerate(sentences):
+            # Check if any keyword is in the sentence (case-insensitive)
+            if any(keyword in sentence.lower() for keyword in keywords):
+                start_idx = max(0, idx - surrounding_sentences_count)
+                end_idx = min(len(sentences), idx + surrounding_sentences_count + 1)
+                surrounding = sentences[start_idx:end_idx]
+                highlighted_sentence = highlight_keywords(sentence, keywords)
+                matching_sentences.append({
+                    "sentence": highlighted_sentence,
+                    "surrounding_context": surrounding,
+                    "page_number": page_number + 1
+                })
+                corpus.append(sentence)  # Add sentences to corpus for embedding
 
+        # If there were any matching sentences on this page, add to extracted_data
+        if matching_sentences:
+            extracted_data[page_number + 1] = matching_sentences
+
+    # Check if any data was extracted
+    if not extracted_data:
+        print("No matches found for the provided keywords.")  # Debugging
     return extracted_data, corpus  # Return both matching data and corpus
+s
 
 # Function to process the keywords into a dictionary
 def process_keywords_to_dict(df, team_type):
