@@ -55,6 +55,29 @@ def extract_keyword_info(pdf_path, keywords, surrounding_sentences_count=2):
                 extracted_data[page_number + 1] = matching_sentences
 
     return extracted_data, corpus  # Return both matching data and corpus
+# Function to process the keywords into a dictionary
+def process_keywords_to_dict(df, team_type):
+    keyword_dict = {}
+    for index, row in df.iterrows():
+        indicator = row['SFDR Indicator'] if team_type == 'sfdr' else row['Asset Type']
+        datapoint_name = row['Datapoint Name']
+        keywords = row['Keywords'].split(',')
+        keywords = [keyword.strip() for keyword in keywords]
+
+        if indicator not in keyword_dict:
+            keyword_dict[indicator] = {}
+
+        if datapoint_name not in keyword_dict[indicator]:
+            keyword_dict[indicator][datapoint_name] = []
+
+        keyword_dict[indicator][datapoint_name].extend(keywords)
+
+    # Optional: Remove duplicates within each list of keywords for each Datapoint Name
+    for indicator in keyword_dict:
+        for datapoint in keyword_dict[indicator]:
+            keyword_dict[indicator][datapoint] = list(set(keyword_dict[indicator][datapoint]))
+
+    return keyword_dict
 
 
 def highlight_keywords(text, keywords):
