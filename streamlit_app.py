@@ -43,12 +43,12 @@ def extract_pdf_content(pdf_file):
         text = page.get_text()
         text_chunks.extend(sent_tokenize(text))  # Tokenize text into sentences
         
-        # Extract images
-        for img_index in range(len(page.get_images(full=True))):
-            img = page.get_image(img_index)
-            base_image = fitz.Pixmap(doc, img[0])
-            img_bytes = base_image.tobytes("png")
-            images.append(img_bytes)
+        # Extract images using get_images() instead of get_image()
+        for img_index, img in enumerate(page.get_images(full=True)):
+            xref = img[0]  # The reference number for the image
+            base_image = fitz.Pixmap(doc, xref)  # Get the image pixmap using the xref
+            img_bytes = base_image.tobytes("png")  # Convert the image to PNG bytes
+            images.append(img_bytes)  # Append image bytes to the list
     
     return text_chunks, images
 
