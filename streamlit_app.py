@@ -11,7 +11,7 @@ from nltk.tokenize import word_tokenize, sent_tokenize
 import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer  
-
+nltk.download('punkt_tab') 
 # Load the transformer model for embeddings
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
