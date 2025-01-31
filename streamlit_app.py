@@ -1,319 +1,198 @@
-import streamlit as st
-import logging
-import os
-import tempfile
-import shutil
-import pdfplumber
-import ollama
-
-from langchain_community.document_loaders import UnstructuredPDFLoader
-from langchain_ollama import OllamaEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain.prompts import ChatPromptTemplate, PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_ollama.chat_models import ChatOllama
-from langchain_core.runnables import RunnablePassthrough
-from langchain.retrievers.multi_query import MultiQueryRetriever
-from typing import List, Tuple, Dict, Any, Optional
-
-# Set protobuf environment variable to avoid error messages
-os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-
-# Streamlit page configuration
-st.set_page_config(
-    page_title="Ollama PDF RAG Streamlit UI",
-    page_icon="🎈",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
-
-# Logging configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
-
-logger = logging.getLogger(__name__)
-
-def mock_ollama_list():
-    """Simulate a response from Ollama API with dummy models for Streamlit Cloud."""
-    return {
-        "models": [
-            {"name": "dummy-model-1"},
-            {"name": "dummy-model-2"}
-        ]
-    }
-
-@st.cache_resource(show_spinner=True)
-def extract_model_names(models_info: Dict[str, List[Dict[str, Any]]]) -> Tuple[str, ...]:
-    """Extract model names from the provided models information."""
-    logger.info("Extracting model names from models_info")
-    model_names = tuple(model["name"] for model in models_info["models"])
-    logger.info(f"Extracted model names: {model_names}")
-    return model_names
-
 import fitz  # PyMuPDF
+import spacy
+import re
+import streamlit as st
+import pandas as pd  # For handling Excel conversion
+import os
+import time
+from io import BytesIO
+from PIL import Image, ImageEnhance  # Import Pillow for image processing
+import tempfile
+import urllib.request
+import zipfile
+import nltk
+from nltk.tokenize import word_tokenize, sent_tokenize
+from gensim.models import Word2Vec
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
-from langchain.schema import Document
+nltk.download('punkt')
 
-def create_vector_db(file_upload) -> Chroma:
-    """Create a vector database from an uploaded PDF file using PyMuPDF."""
-    logger.info(f"Creating vector DB from file upload: {file_upload.name}")
-    temp_dir = tempfile.mkdtemp()
+# Function to extract keyword information and surrounding context from PDF
+def extract_keyword_info(pdf_path, keywords, surrounding_sentences_count=2):
+    keywords = [keyword.lower() for keyword in keywords]  # Convert keywords to lowercase
+    extracted_data = {}
 
-    path = os.path.join(temp_dir, file_upload.name)
-    with open(path, "wb") as f:
-        f.write(file_upload.getvalue())
-        logger.info(f"File saved to temporary path: {path}")
+    doc = fitz.open(pdf_path)
 
-    # Using PyMuPDF to extract text
-    doc = fitz.open(path)
-    text = ""
-    for page in doc:
-        text += page.get_text("text")  # Extract text from the page
-
-    # Wrap text in Document object for Langchain processing
-    documents = [Document(page_content=text)]  # Now it's a list of Documents
-
-    # Split text into chunks
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=7500, chunk_overlap=100)
-    chunks = text_splitter.split_documents(documents)  # Pass a list of Documents
-    logger.info("Document split into chunks")
-
-    # Updated embeddings configuration
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
-    vector_db = Chroma.from_documents(
-        documents=chunks,
-        embedding=embeddings,
-        collection_name="myRAG"
-    )
-    logger.info("Vector DB created")
-
-    shutil.rmtree(temp_dir)
-    logger.info(f"Temporary directory {temp_dir} removed")
-    return vector_db
-
-
-def process_question(question: str, vector_db: Chroma, selected_model: str) -> str:
-    """Process a user question using the vector database and selected language model."""
-    logger.info(f"Processing question: {question} using model: {selected_model}")
+    if len(doc) == 0:
+        raise ValueError("The uploaded PDF has no pages.")
     
-    # Initialize LLM
-    llm = ChatOllama(model=selected_model)
-    
-    # Query prompt template
-    QUERY_PROMPT = PromptTemplate(
-        input_variables=["question"],
-        template="""You are an AI language model assistant. Your task is to generate 2
-        different versions of the given user question to retrieve relevant documents from
-        a vector database. By generating multiple perspectives on the user question, your
-        goal is to help the user overcome some of the limitations of the distance-based
-        similarity search. Provide these alternative questions separated by newlines.
-        Original question: {question}""",
-    )
+    corpus = []  # Store all sentences for embedding generation
 
-    # Set up retriever
-    retriever = MultiQueryRetriever.from_llm(
-        vector_db.as_retriever(), 
-        llm,
-        prompt=QUERY_PROMPT
-    )
+    for page_number in range(len(doc)):
+        page = doc.load_page(page_number)
+        text = page.get_text()
 
-    # RAG prompt template
-    template = """Answer the question based ONLY on the following context:
-    {context}
-    Question: {question}
-    """
+        if text:
+            sentences = sent_tokenize(text)
 
-    prompt = ChatPromptTemplate.from_template(template)
+            matching_sentences = []
+            for idx, sentence in enumerate(sentences):
+                if any(keyword in sentence.lower() for keyword in keywords):
+                    start_idx = max(0, idx - surrounding_sentences_count)
+                    end_idx = min(len(sentences), idx + surrounding_sentences_count + 1)
+                    surrounding = sentences[start_idx:end_idx]
+                    highlighted_sentence = highlight_keywords(sentence, keywords)
+                    matching_sentences.append({
+                        "sentence": highlighted_sentence,
+                        "surrounding_context": surrounding,
+                        "page_number": page_number + 1
+                    })
+                    corpus.append(sentence)  # Add sentences to corpus for embedding
 
-    # Create chain
-    chain = (
-        {"context": retriever, "question": RunnablePassthrough()}
-        | prompt
-        | llm
-        | StrOutputParser()
-    )
+            if matching_sentences:
+                extracted_data[page_number + 1] = matching_sentences
 
-    response = chain.invoke(question)
-    logger.info("Question processed and response generated")
-    return response
+    return extracted_data, corpus  # Return both matching data and corpus
 
-@st.cache_data
-def extract_all_pages_as_images(file_upload) -> List[Any]:
-    """Extract all pages from a PDF file as images."""
-    logger.info(f"Extracting all pages as images from file: {file_upload.name}")
-    pdf_pages = []
-    with pdfplumber.open(file_upload) as pdf:
-        pdf_pages = [page.to_image().original for page in pdf.pages]
-    logger.info("PDF pages extracted as images")
-    return pdf_pages
 
-def delete_vector_db(vector_db: Optional[Chroma]) -> None:
-    """Delete the vector database and clear related session state."""
-    logger.info("Deleting vector DB")
-    if vector_db is not None:
-        vector_db.delete_collection()
-        st.session_state.pop("pdf_pages", None)
-        st.session_state.pop("file_upload", None)
-        st.session_state.pop("vector_db", None)
-        st.success("Collection and temporary files deleted successfully.")
-        logger.info("Vector DB and related session state cleared")
-        st.rerun()
+def highlight_keywords(text, keywords):
+    for keyword in keywords:
+        text = re.sub(f'({re.escape(keyword)})', r'<b style="color: red;">\1</b>', text, flags=re.IGNORECASE)
+    return text
+
+
+# Function to create embeddings for sentences using Word2Vec
+def create_embeddings(corpus):
+    # Train Word2Vec model
+    model = Word2Vec([sentence.split() for sentence in corpus], vector_size=100, window=5, min_count=1, sg=0)
+    embeddings = []
+    for sentence in corpus:
+        sentence_embedding = np.mean([model.wv[word] for word in sentence.split() if word in model.wv], axis=0)
+        embeddings.append(sentence_embedding)
+    return model, embeddings
+
+
+# Function to query embeddings with a user's input
+def query_embeddings(query, model, embeddings, corpus):
+    query_embedding = np.mean([model.wv[word] for word in query.split() if word in model.wv], axis=0)
+    similarities = cosine_similarity([query_embedding], embeddings)
+    top_indices = similarities[0].argsort()[-3:][::-1]  # Get top 3 results
+
+    results = []
+    for index in top_indices:
+        results.append({
+            "matched_sentence": corpus[index],
+            "similarity": similarities[0][index]
+        })
+    return results
+
+
+# Load the SFDR and Asset Keyword data from GitHub (URLs directly)
+def load_keywords_from_github(url):
+    # Load the Excel file directly from GitHub
+    df = pd.read_excel(url, engine='openpyxl')  
+    return df
+
+# Your existing functions for extracting keywords, etc., remain the same...
+
+
+# Streamlit UI for handling the query input and displaying the results
+def run():
+    st.title("📄 **PDF Keyword Extractor with Querying**")
+    st.markdown("This tool extracts keywords from PDFs and allows users to query the context around the keywords.")
+
+    pdf_file = st.file_uploader("Upload PDF file", type=["pdf"])    
+
+    # Load and process the keyword dictionaries
+    sfdr_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/sfdr_file.xlsx"  # Replace with actual SFDR Excel file URL
+    asset_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/asset_file.xlsx"  # Replace with actual Asset Excel file URL
+
+    sfdr_df = load_keywords_from_github(sfdr_file_url)
+    asset_df = load_keywords_from_github(asset_file_url)
+
+    sfdr_keywords_dict = process_keywords_to_dict(sfdr_df, 'sfdr')
+    asset_keywords_dict = process_keywords_to_dict(asset_df, 'assets')
+
+    team_type = st.selectbox("Select Team", ["sfdr", "physical assets"])
+
+    if team_type == "sfdr":
+        indicators = list(sfdr_keywords_dict.keys())
     else:
-        st.error("No vector database found to delete.")
-        logger.warning("Attempted to delete vector DB, but none was found")
+        indicators = list(asset_keywords_dict.keys())
 
-def main() -> None:
-    """Main function to run the Streamlit application."""
-    st.subheader("🧠 Ollama PDF RAG playground", divider="gray", anchor=False)
-
-    # Get available models (using mock for Streamlit Cloud)
-    models_info = mock_ollama_list()
-    available_models = extract_model_names(models_info)
-
-    # Create layout
-    col1, col2 = st.columns([1.5, 2])
-
-    # Initialize session state
-    if "messages" not in st.session_state:
-        st.session_state["messages"] = []
-    if "vector_db" not in st.session_state:
-        st.session_state["vector_db"] = None
-    if "use_sample" not in st.session_state:
-        st.session_state["use_sample"] = False
-
-    # Model selection
-    if available_models:
-        selected_model = col2.selectbox(
-            "Pick a model available locally on your system ↓", 
-            available_models,
-            key="model_select"
-        )
-
-    # Add checkbox for sample PDF
-    use_sample = col1.toggle(
-        "Use sample PDF (Scammer Agent Paper)", 
-        key="sample_checkbox"
-    )
-    
-    # Clear vector DB if switching between sample and upload
-    if use_sample != st.session_state.get("use_sample"):
-        if st.session_state["vector_db"] is not None:
-            st.session_state["vector_db"].delete_collection()
-            st.session_state["vector_db"] = None
-            st.session_state["pdf_pages"] = None
-        st.session_state["use_sample"] = use_sample
-
-    if use_sample:
-        # Use the sample PDF
-        sample_path = "scammer-agent.pdf"
-        if os.path.exists(sample_path):
-            if st.session_state["vector_db"] is None:
-                with st.spinner("Processing sample PDF..."):
-                    loader = UnstructuredPDFLoader(file_path=sample_path)
-                    data = loader.load()
-                    text_splitter = RecursiveCharacterTextSplitter(chunk_size=7500, chunk_overlap=100)
-                    chunks = text_splitter.split_documents(data)
-                    st.session_state["vector_db"] = Chroma.from_documents(
-                        documents=chunks,
-                        embedding=OllamaEmbeddings(model="nomic-embed-text"),
-                        collection_name="myRAG"
-                    )
-                    # Open and display the sample PDF
-                    with pdfplumber.open(sample_path) as pdf:
-                        pdf_pages = [page.to_image().original for page in pdf.pages]
-                        st.session_state["pdf_pages"] = pdf_pages
-        else:
-            st.error("Sample PDF file not found in the current directory.")
+    indicator = st.selectbox("Select Indicator", indicators)
+    if team_type == "sfdr":
+        datapoint_names = list(sfdr_keywords_dict[indicator].keys())
     else:
-        # Regular file upload with unique key
-        file_upload = col1.file_uploader(
-            "Upload a PDF file ↓", 
-            type="pdf", 
-            accept_multiple_files=False,
-            key="pdf_uploader"
-        )
+        datapoint_names = list(asset_keywords_dict[indicator].keys())
 
-        if file_upload:
-            if st.session_state["vector_db"] is None:
-                with st.spinner("Processing uploaded PDF..."):
-                    st.session_state["vector_db"] = create_vector_db(file_upload)
-                    pdf_pages = extract_all_pages_as_images(file_upload)
-                    st.session_state["pdf_pages"] = pdf_pages
+    datapoint_name = st.multiselect("Select Datapoint Names", datapoint_names)
 
-    # Display PDF if pages are available
-    if "pdf_pages" in st.session_state and st.session_state["pdf_pages"]:
-        # PDF display controls
-        zoom_level = col1.slider(
-            "Zoom Level", 
-            min_value=100, 
-            max_value=1000, 
-            value=700, 
-            step=50,
-            key="zoom_slider"
-        )
-
-        # Display PDF pages
-        with col1:
-            with st.container(height=410, border=True):
-                # Removed the key parameter from st.image()
-                for page_image in st.session_state["pdf_pages"]:
-                    st.image(page_image, width=zoom_level)
-
-    # Delete collection button
-    delete_collection = col1.button(
-        "⚠️ Delete collection", 
-        type="secondary",
-        key="delete_button"
+    # Add extra keywords (optional)
+    extra_keywords_input = st.text_area("Additional Keywords (comma-separated)", "")
+    
+    surrounding_sentences_count = st.slider(
+        "Select the number of surrounding sentences to show:",
+        min_value=1,
+        max_value=5,
+        value=2,
+        step=1
     )
 
-    if delete_collection:
-        delete_vector_db(st.session_state["vector_db"])
-
-    # Chat interface
-    with col2:
-        message_container = st.container(height=500, border=True)
-
-        # Display chat history
-        for i, message in enumerate(st.session_state["messages"]):
-            avatar = "🤖" if message["role"] == "assistant" else "😎"
-            with message_container.chat_message(message["role"], avatar=avatar):
-                st.markdown(message["content"])
-
-        # Chat input and processing
-        if prompt := st.chat_input("Enter a prompt here...", key="chat_input"):
-            try:
-                # Add user message to chat
-                st.session_state["messages"].append({"role": "user", "content": prompt})
-                with message_container.chat_message("user", avatar="😎"):
-                    st.markdown(prompt)
-
-                # Process and display assistant response
-                with message_container.chat_message("assistant", avatar="🤖"):
-                    with st.spinner(":green[processing...]"):
-                        if st.session_state["vector_db"] is not None:
-                            response = process_question(
-                                prompt, st.session_state["vector_db"], selected_model
-                            )
-                            st.markdown(response)
-                        else:
-                            st.warning("Please upload a PDF file first.")
-
-                # Add assistant response to chat history
-                if st.session_state["vector_db"] is not None:
-                    st.session_state["messages"].append(
-                        {"role": "assistant", "content": response}
-                    )
-
-            except Exception as e:
-                st.error(e, icon="⛔️")
-                logger.error(f"Error processing prompt: {e}")
+    # Submit button for extracting results
+    if st.button("Submit"):
+        selected_keywords = []
+        if team_type == "sfdr":
+            for datapoint in datapoint_name:
+                selected_keywords.extend(sfdr_keywords_dict[indicator].get(datapoint, []))
         else:
-            if st.session_state["vector_db"] is None:
-                st.warning("Upload a PDF file or use the sample PDF to begin chat...")
+            for datapoint in datapoint_name:
+                selected_keywords.extend(asset_keywords_dict[indicator].get(datapoint, []))
+
+        selected_keywords = list(set(selected_keywords))
+
+        if extra_keywords_input:
+            extra_keywords = [keyword.strip() for keyword in extra_keywords_input.split(',')]
+            selected_keywords.extend(extra_keywords)
+
+        selected_keywords = list(set(selected_keywords))
+
+        if pdf_file:
+            st.write("PDF file uploaded successfully.")
+            with open("temp.pdf", "wb") as f:
+                f.write(pdf_file.getbuffer())
+
+            # Extract keyword information and context
+            keyword_results, corpus = extract_keyword_info("temp.pdf", selected_keywords, surrounding_sentences_count)
+
+            # Create embeddings for the corpus
+            model, embeddings = create_embeddings(corpus)
+
+            # Display keyword results
+            for keyword in selected_keywords:
+                if keyword in keyword_results:
+                    with st.expander(f"Results for '{keyword}'"):
+                        for result in keyword_results[keyword]:
+                            st.markdown(f"**Page {result['page_number']}:**")
+                            st.markdown(f"<p style='color: #00C0F9;'>{result['sentence']}</p>", unsafe_allow_html=True)
+                            st.write("**Context:**")
+                            for context in result['surrounding_context']:
+                                st.write(f"  - {context}")
+
+            # User query
+            user_query = st.text_input("Enter your query to search the context:")
+
+            if user_query:
+                st.write("Querying the context...")
+                query_results = query_embeddings(user_query, model, embeddings, corpus)
+
+                # Display query results
+                st.write("Top 3 most relevant context sentences for your query:")
+                for result in query_results:
+                    st.markdown(f"**Matched Sentence:** {result['matched_sentence']}")
+                    st.write(f"Similarity: {result['similarity']:.4f}")
 
 if __name__ == "__main__":
-    main()
+    run()
