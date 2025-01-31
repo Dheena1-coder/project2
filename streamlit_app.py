@@ -6,9 +6,40 @@ import tempfile
 import fitz  # PyMuPDF
 from io import BytesIO
 from PIL import Image
+import pandas as pd
 
 # Load the transformer model for embeddings
 model = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Load the SFDR and Asset Keyword data from GitHub (URLs directly)
+def load_keywords_from_github(url):
+    # Load the Excel file directly from GitHub
+    df = pd.read_excel(url, engine='openpyxl')  
+    return df
+
+# Process data into dictionary
+def process_keywords_to_dict(df, team_type):
+    keyword_dict = {}
+    for index, row in df.iterrows():
+        indicator = row['SFDR Indicator'] if team_type == 'sfdr' else row['Asset Type']
+        datapoint_name = row['Datapoint Name']
+        keywords = row['Keywords'].split(',')
+        keywords = [keyword.strip() for keyword in keywords]
+
+        if indicator not in keyword_dict:
+            keyword_dict[indicator] = {}
+
+        if datapoint_name not in keyword_dict[indicator]:
+            keyword_dict[indicator][datapoint_name] = []
+
+        keyword_dict[indicator][datapoint_name].extend(keywords)
+
+    # Optional: Remove duplicates within each list of keywords for each Datapoint Name
+    for indicator in keyword_dict:
+        for datapoint in keyword_dict[indicator]:
+            keyword_dict[indicator][datapoint] = list(set(keyword_dict[indicator][datapoint]))
+
+    return keyword_dict
 
 # Function to upload PDF
 def upload_pdf():
@@ -56,7 +87,6 @@ def retrieve_context(query, text_chunks, index):
     return [(text_chunks[i][0], text_chunks[i][1], text_chunks[i][2], distances[0][j]) for j, i in enumerate(indices[0])]
 
 # Function to highlight matching words in the PDF
-# Function to highlight matching words in the PDF
 def highlight_text_on_pdf(doc, query, page_number):
     page = doc.load_page(page_number - 1)  # Page numbers are 0-indexed in PyMuPDF
     
@@ -76,32 +106,124 @@ def page_to_image_with_highlights(doc, page_number):
     img = page.get_pixmap()  # Get the page as a pixmap (image)
     return Image.open(BytesIO(img.tobytes()))  # Convert to image
 
+# Function to calculate keyword statistics (frequency of occurrence)
+def calculate_keyword_statistics(text_chunks, selected_keywords):
+    keyword_stats = {}
+    
+    # Initialize stats dictionary for each selected keyword
+    for keyword in selected_keywords:
+        keyword_stats[keyword] = {
+            'occurrences': 0,
+            'pages': set()
+        }
+    
+    # Count occurrences of keywords in the text chunks
+    for sentence, page_number, _ in text_chunks:
+        for keyword in selected_keywords:
+            if keyword.lower() in sentence.lower():
+                keyword_stats[keyword]['occurrences'] += 1
+                keyword_stats[keyword]['pages'].add(page_number)
+    
+    return keyword_stats
+
 # Streamlit app
 def main():
-    st.title("PDF Context Retrieval System")
+    # Streamlit UI components
+    st.title("📄 **PDF Keyword Extractor **")
+    st.markdown("This tool helps you extract text and their respective page from PDFs and search for specific keywords. The matched keywords will be highlighted in the pdf page and text along with their surrounding context.")
     
     # Upload the PDF file
     pdf_file = upload_pdf()
-    if pdf_file:
-        text_chunks, doc = extract_pdf_content(pdf_file)  # Extract text and word positions
-        embeddings = create_embeddings(text_chunks)
-        index = build_vector_database(embeddings)
+    # URLs of the GitHub Excel files (update with actual raw GitHub links)
+    sfdr_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/sfdr_file.xlsx"  # Replace with actual SFDR Excel file URL
+    asset_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/asset_file.xlsx"  # Replace with actual Asset Excel file URL
+
+    # Load and process the keyword dictionaries
+    sfdr_df = load_keywords_from_github(sfdr_file_url)
+    asset_df = load_keywords_from_github(asset_file_url)
+
+    sfdr_keywords_dict = process_keywords_to_dict(sfdr_df, 'sfdr')
+    asset_keywords_dict = process_keywords_to_dict(asset_df, 'assets')
+
+    # Create dropdown for team selection
+    team_type = st.selectbox("Select Team", ["sfdr", "physical assets"])
+
+    # Display appropriate keyword dictionary based on team selection
+    if team_type == "sfdr":
+        indicators = list(sfdr_keywords_dict.keys())
+    else:
+        indicators = list(asset_keywords_dict.keys())
+    
+    indicator = st.selectbox("Select Indicator", indicators)
+    if team_type == "sfdr":
+        datapoint_names = list(sfdr_keywords_dict[indicator].keys())
+    else:
+        datapoint_names = list(asset_keywords_dict[indicator].keys())
+    
+    datapoint_name = st.multiselect("Select Datapoint Names", datapoint_names)
+    
+    # Keyword Text Area: Allow users to add additional keywords
+    extra_keywords_input = st.text_area("Additional Keywords (comma-separated)", "")
+    surrounding_sentences_count = st.slider(
+        "Select the number of surrounding sentences to show:",
+        min_value=1,
+        max_value=5,
+        value=2,
+        step=1
+    )   
+    # If user submits
+    if st.button("Submit"):
+        # Extract relevant keywords based on the selected datapoint names
+        selected_keywords = []
+        if team_type == "sfdr":
+            for datapoint in datapoint_name:
+                selected_keywords.extend(sfdr_keywords_dict[indicator].get(datapoint, []))
+        else:
+            for datapoint in datapoint_name:
+                selected_keywords.extend(asset_keywords_dict[indicator].get(datapoint, []))
+
+        selected_keywords = list(set(selected_keywords))  # Remove duplicates
         
-        # User input query
-        query = st.text_input("Enter your query:")
-        if query:
-            results = retrieve_context(query, text_chunks, index)
-            for result in results:
-                # Display relevant text with page number
-                st.write(f"**Page {result[1]}**: {result[0]}")  # Display relevant sentence
-                page_number = result[1]
-                
-                # Highlight matching words and generate image of the page
-                doc_with_highlights = highlight_text_on_pdf(doc, query,page_number)
-                highlighted_image = page_to_image_with_highlights(doc_with_highlights, page_number)
-                
-                # Display the page with highlights
-                st.image(highlighted_image, caption=f"Highlighted Page {page_number}")
+        # Add any extra keywords entered in the text area
+        if extra_keywords_input:
+            extra_keywords = [keyword.strip() for keyword in extra_keywords_input.split(',')]
+            selected_keywords.extend(extra_keywords)
+
+        selected_keywords = list(set(selected_keywords))  # Remove duplicates after adding extra keywords
+        st.write(selected_keywords)
+
+        if pdf_file:
+            text_chunks, doc = extract_pdf_content(pdf_file)  # Extract text and word positions
+            embeddings = create_embeddings(text_chunks)
+            index = build_vector_database(embeddings)
+            
+            # Calculate keyword statistics
+            keyword_stats = calculate_keyword_statistics(text_chunks, selected_keywords)
+            
+            # Display keyword statistics
+            st.write("### Keyword Statistics")
+            stats_data = []
+            for keyword, stats in keyword_stats.items():
+                stats_data.append([keyword, stats['occurrences'], sorted(list(stats['pages']))])
+            
+            stats_df = pd.DataFrame(stats_data, columns=["Keyword", "Occurrences", "Pages"])
+            st.dataframe(stats_df)
+            
+            # User input query
+            query = st.text_input("Enter your query:")
+            if query:
+                results = retrieve_context(query, text_chunks, index)
+                for result in results:
+                    # Display relevant text with page number
+                    st.write(f"**Page {result[1]}**: {result[0]}")  # Display relevant sentence
+                    page_number = result[1]
+                    
+                    # Highlight matching words and generate image of the page
+                    doc_with_highlights = highlight_text_on_pdf(doc, query, page_number)
+                    highlighted_image = page_to_image_with_highlights(doc_with_highlights, page_number)
+                    
+                    # Display the page with highlights
+                    st.image(highlighted_image, caption=f"Highlighted Page {page_number}")
 
 if __name__ == "__main__":
     main()
