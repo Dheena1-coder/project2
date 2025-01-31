@@ -9,3 +9,4 @@ Pillow
 pyyaml
 openpyxl
 requests
+frontend
