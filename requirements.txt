@@ -10,3 +10,4 @@ pyyaml
 openpyxl
 requests
 frontend
+PyMuPDF
