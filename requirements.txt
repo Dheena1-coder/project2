@@ -11,4 +11,4 @@ openpyxl
 requests
 frontend
 PyMuPDF
-chromadb
+faiss-gpu
