@@ -5,7 +5,7 @@ import PyPDF2
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-
+import pandas as pd
 # Function to read PDF
 def read_pdf(file):
     pdf_reader = PyPDF2.PdfReader(file)
@@ -20,8 +20,8 @@ uploaded_file = st.file_uploader("Upload a PDF file", type="pdf")
 
 if uploaded_file is not None:
     text = read_pdf(uploaded_file)
-    st.write("PDF Content:")
-    st.write(text)
+    #st.write("PDF Content:")
+    #st.write(text)
 
     # Embedding the text
     vectorizer = TfidfVectorizer()
