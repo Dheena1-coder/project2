@@ -10,7 +10,7 @@ import pandas as pd
 import nltk
 nltk.download('punkt_tab')
 # Load the transformer model for embeddings
-model = SentenceTransformer('all-MiniLM-L6-v2')
+model = SentenceTransformer('paraphrase-MiniLM-L12-v2')
 
 # Load the SFDR and Asset Keyword data from GitHub (URLs directly)
 def load_keywords_from_github(url):
