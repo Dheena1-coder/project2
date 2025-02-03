@@ -8,7 +8,7 @@ from io import BytesIO
 from PIL import Image
 import pandas as pd
 import nltk
-nltk.download('punkt_tab')
+#nltk.download('punkt_tab')
 # Load the transformer model for embeddings
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
