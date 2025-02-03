@@ -22,7 +22,7 @@ def load_keywords_from_github(url):
 def process_keywords_to_dict(df, team_type):
     keyword_dict = {}
     for index, row in df.iterrows():
-        indicator = row['SFDR Indicator'] if team_type == 'sfdr' else row['Asset Type']
+        indicator = row['SFDR Indicator'] if team_type == 'sfdr' else row['Asset/Report Type']
         datapoint_name = row['Datapoint Name']
         keywords = row['Keywords'].split(',')
         keywords = [keyword.strip() for keyword in keywords]
