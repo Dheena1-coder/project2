@@ -137,8 +137,10 @@ def calculate_keyword_statistics(text_chunks, selected_keywords):
 
 def main():
     # Streamlit UI components
-    st.title("📄 **PDF Keyword Extractor **")
-    st.markdown("This tool helps you extract text and their respective page from PDFs and search for specific keywords. The matched keywords will be highlighted in the pdf page and text along with their surrounding context.")
+    st.title("📄 **Query Based Extractor **")
+    st.markdown("this Tool is to help identify, highlight the keywords or user query sentence and extract the details through user query.
+
+")
     
     # Upload the PDF file
     pdf_file = upload_pdf()
