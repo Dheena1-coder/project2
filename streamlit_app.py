@@ -10,7 +10,7 @@ import pandas as pd
 import nltk
 nltk.download('punkt_tab')
 # Load the transformer model for embeddings
-model = SentenceTransformer('paraphrase-MiniLM-L12-v2')
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Load the SFDR and Asset Keyword data from GitHub (URLs directly)
 def load_keywords_from_github(url):
@@ -87,12 +87,19 @@ def retrieve_context(query, text_chunks, index):
     distances, indices = index.search(query_embedding, k=5)
     return [(text_chunks[i][0], text_chunks[i][1], text_chunks[i][2], distances[0][j]) for j, i in enumerate(indices[0])]
 
-# Function to highlight matching words in the PDF
-def highlight_text_on_pdf(doc, query, page_number):
+# Function to highlight matching words in the PDF (including keywords from the query)
+def highlight_text_on_pdf(doc, query, selected_keywords, page_number):
     page = doc.load_page(page_number - 1)  # Page numbers are 0-indexed in PyMuPDF
     
-    # Search for the query on the page
-    text_instances = page.search_for(query)  # This finds the exact position of the query in the page's text
+    # Initialize a set of text instances to highlight
+    text_instances = set()
+    
+    # Search for the query on the page and add to the instances set
+    text_instances.update(page.search_for(query)) 
+    
+    # Search for each selected keyword and add to the instances set
+    for keyword in selected_keywords:
+        text_instances.update(page.search_for(keyword))  # This finds the exact position of each keyword
     
     # Loop through all the instances and draw highlights around them
     for inst in text_instances:
@@ -101,10 +108,11 @@ def highlight_text_on_pdf(doc, query, page_number):
     
     return doc
 
-# Function to convert page to image with highlights
-def page_to_image_with_highlights(doc, page_number):
+# Function to convert page to image with higher DPI and highlights
+def page_to_image_with_highlights(doc, page_number, dpi_scale=2):
     page = doc.load_page(page_number - 1)  # Page numbers are 0-indexed in PyMuPDF
-    img = page.get_pixmap()  # Get the page as a pixmap (image)
+    mat = fitz.Matrix(dpi_scale, dpi_scale)  # Scale the DPI by the desired factor
+    img = page.get_pixmap(matrix=mat)  # Get the page as a pixmap (image) with higher resolution
     return Image.open(BytesIO(img.tobytes()))  # Convert to image
 
 # Function to calculate keyword statistics (frequency of occurrence)
@@ -224,8 +232,8 @@ def main():
                 page_number = result[1]
                 
                 # Highlight matching words and generate image of the page
-                doc_with_highlights = highlight_text_on_pdf(doc, query, page_number)
-                highlighted_image = page_to_image_with_highlights(doc_with_highlights, page_number)
+                doc_with_highlights = highlight_text_on_pdf(doc, query,selected_keywords, page_number)
+                highlighted_image = page_to_image_with_highlights(doc_with_highlights, page_number, dpi_scale=2)
                 
                 # Display the page with highlights
                 st.image(highlighted_image, caption=f"Highlighted Page {page_number}")
