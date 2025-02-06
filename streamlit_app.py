@@ -1,3 +1,5 @@
+!pip install torch --upgrade
+
 import streamlit as st
 import faiss
 from sentence_transformers import SentenceTransformer
