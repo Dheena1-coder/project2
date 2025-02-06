@@ -10,7 +10,7 @@ pyyaml
 openpyxl
 requests
 frontend
-PyMuPDF
+pymupdf
 faiss-cpu
 numpy
 sentence-transformers
