@@ -10,7 +10,7 @@ from PIL import Image
 import pandas as pd
 import nltk
 try:
-    nltk.data.find('tokenizers/punkt')
+    nltk.data.find('tokenizers/punkt_tab')
 except LookupError:
     nltk.download('punkt_tab')# Load the transformer model for embeddings
 model = SentenceTransformer('all-MiniLM-L6-v2')
