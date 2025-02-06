@@ -12,7 +12,7 @@ import nltk
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
-    nltk.download('punkt')# Load the transformer model for embeddings
+    nltk.download('punkt_tab')# Load the transformer model for embeddings
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Load the SFDR and Asset Keyword data from GitHub (URLs directly)
