@@ -14,6 +14,5 @@ pymupdf
 faiss-cpu
 numpy
 sentence-transformers
-PyPDF2
-torch==2.3.0
+torch
 
