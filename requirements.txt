@@ -15,4 +15,4 @@ faiss-cpu
 numpy
 sentence-transformers
 PyPDF2
-torch==1.13.0
+torch
