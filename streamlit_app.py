@@ -1,4 +1,3 @@
-!pip install torch --upgrade
 
 import streamlit as st
 import faiss
