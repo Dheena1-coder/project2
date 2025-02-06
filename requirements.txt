@@ -10,9 +10,9 @@ pyyaml
 openpyxl
 requests
 frontend
-pymupdf
+PyMuPDF
 faiss-cpu
 numpy
 sentence-transformers
- torch --upgrade
+torch 
 
