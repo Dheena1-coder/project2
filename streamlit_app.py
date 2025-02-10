@@ -13,9 +13,6 @@ import spacy
 # Load the transformer model for embeddings
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# Load SpaCy model for sentence segmentation
-nlp = spacy.load("en_core_web_sm")
-
 # Ensure NLTK punkt tokenizer is available
 try:
     nltk.data.find('tokenizers/punkt_tab')
