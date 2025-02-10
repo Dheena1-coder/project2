@@ -1,4 +1,3 @@
-
 import streamlit as st
 import faiss
 from sentence_transformers import SentenceTransformer
@@ -9,16 +8,25 @@ from io import BytesIO
 from PIL import Image
 import pandas as pd
 import nltk
+import spacy
+from concurrent.futures import ThreadPoolExecutor
+import numpy as np
+
+# Load the transformer model for embeddings
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+# Load the SpaCy tokenizer for faster sentence tokenization
+nlp = spacy.load("en_core_web_sm")
+
+# Check for punkt tokenizer (if missing, download)
 try:
     nltk.data.find('tokenizers/punkt_tab')
 except LookupError:
-    nltk.download('punkt_tab')# Load the transformer model for embeddings
-model = SentenceTransformer('all-MiniLM-L6-v2')
+    nltk.download('punkt_tab')
 
 # Load the SFDR and Asset Keyword data from GitHub (URLs directly)
 def load_keywords_from_github(url):
-    # Load the Excel file directly from GitHub
-    df = pd.read_excel(url, engine='openpyxl')  
+    df = pd.read_excel(url, engine='openpyxl')
     return df
 
 # Process data into dictionary
@@ -38,7 +46,7 @@ def process_keywords_to_dict(df, team_type):
 
         keyword_dict[indicator][datapoint_name].extend(keywords)
 
-    # Optional: Remove duplicates within each list of keywords for each Datapoint Name
+    # Remove duplicates within each list of keywords for each Datapoint Name
     for indicator in keyword_dict:
         for datapoint in keyword_dict[indicator]:
             keyword_dict[indicator][datapoint] = list(set(keyword_dict[indicator][datapoint]))
@@ -57,58 +65,70 @@ def extract_pdf_content(pdf_file):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
         temp_file.write(pdf_file.read())
         temp_file_path = temp_file.name
-        
+
     doc = fitz.open(temp_file_path)
     text_chunks = []
     word_positions = []  # To store word positions for highlighting
-    
+
     # Extract text and word positions from each page
     for page_number, page in enumerate(doc, start=1):
         text = page.get_text("text")  # Extract text from the page
         words = page.get_text("words")  # Extract word positions
-        
+
         # Store each sentence with its respective page and word positions
-        text_chunks.extend([(sent, page_number, words) for sent in sent_tokenize(text)])
-    
+        sentences = [sent.text for sent in nlp(text).sents]  # Tokenize sentences using spaCy
+        text_chunks.extend([(sent, page_number, words) for sent in sentences])
+
     return text_chunks, doc  # Return text with word positions and the document object for highlighting
 
-# Function to create embeddings
-def create_embeddings(text_chunks):
-    text_only = [chunk[0] for chunk in text_chunks]  # Extract sentences (text only) from tuples
-    embeddings = model.encode(text_only)
-    return embeddings
+# Function to create embeddings in batches
+def create_embeddings(text_chunks, batch_size=32):
+    text_only = [chunk[0] for chunk in text_chunks]
+    
+    # Process in batches for faster embeddings
+    embeddings = []
+    for i in range(0, len(text_only), batch_size):
+        batch = text_only[i:i+batch_size]
+        batch_embeddings = model.encode(batch, show_progress_bar=True)  # Add progress bar for large batches
+        embeddings.extend(batch_embeddings)
 
-# Function to build vector database
-def build_vector_database(embeddings):
-    index = faiss.IndexFlatL2(embeddings.shape[1])
-    index.add(embeddings)
-    return index
+    return np.array(embeddings)
+
+# Function to build vector database (FAISS with GPU support)
+def build_vector_database_gpu(embeddings):
+    res = faiss.StandardGpuResources()  # Initialize the GPU resources
+    index_flat = faiss.IndexFlatL2(embeddings.shape[1])  # Standard L2 distance flat index
+
+    # Transfer the index to the GPU
+    gpu_index = faiss.index_cpu_to_gpu(res, 0, index_flat)  # Use GPU 0
+    gpu_index.add(embeddings)  # Add the embeddings to the GPU index
+    return gpu_index
 
 # Function to retrieve context based on user query
-def retrieve_context(query, text_chunks, index):
+def retrieve_context(query, text_chunks, index, k=5):
     query_embedding = model.encode([query])
-    distances, indices = index.search(query_embedding, k=5)
+    distances, indices = index.search(query_embedding, k)
     return [(text_chunks[i][0], text_chunks[i][1], text_chunks[i][2], distances[0][j]) for j, i in enumerate(indices[0])]
 
 # Function to highlight matching words in the PDF (including keywords from the query)
 def highlight_text_on_pdf(doc, query, selected_keywords, page_number):
     page = doc.load_page(page_number - 1)  # Page numbers are 0-indexed in PyMuPDF
-    
+
     # Initialize a set of text instances to highlight
     text_instances = set()
-    
+
     # Search for the query on the page and add to the instances set
-    text_instances.update(page.search_for(query)) 
-    
+    text_instances.update(page.search_for(query))
+
     # Search for each selected keyword and add to the instances set
     for keyword in selected_keywords:
         text_instances.update(page.search_for(keyword))  # This finds the exact position of each keyword
-    
+
     # Loop through all the instances and draw highlights around them
     for inst in text_instances:
         rect = fitz.Rect(inst)  # Create a rectangle based on the text instance
         page.draw_rect(rect, color=(0, 1, 0), width=2)  # Draw a green rectangle around the keyword (no fill)
-    
+
     return doc
 
 # Function to convert page to image with higher DPI and highlights
@@ -121,28 +141,35 @@ def page_to_image_with_highlights(doc, page_number, dpi_scale=2):
 # Function to calculate keyword statistics (frequency of occurrence)
 def calculate_keyword_statistics(text_chunks, selected_keywords):
     keyword_stats = {}
-    
+
     # Initialize stats dictionary for each selected keyword
     for keyword in selected_keywords:
         keyword_stats[keyword] = {
             'occurrences': 0,
             'pages': set()
         }
-    
+
     # Count occurrences of keywords in the text chunks
     for sentence, page_number, _ in text_chunks:
         for keyword in selected_keywords:
             if keyword.lower() in sentence.lower():
                 keyword_stats[keyword]['occurrences'] += 1
                 keyword_stats[keyword]['pages'].add(page_number)
-    
+
     return keyword_stats
+
+# Function to process queries concurrently
+def process_queries_parallel(queries, text_chunks, index):
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(retrieve_context, query, text_chunks, index) for query in queries]
+        results = [future.result() for future in futures]
+    return results
 
 def main():
     # Streamlit UI components
     st.title("📄 **Query Based Extractor **")
     st.markdown("this Tool is to help identify, highlight the keywords or user query sentence and extract the details through user query.")
-    
+
     # Upload the PDF file
     pdf_file = upload_pdf()
 
@@ -170,15 +197,15 @@ def main():
         indicators = list(sfdr_keywords_dict.keys())
     else:
         indicators = list(asset_keywords_dict.keys())
-    
+
     indicator = st.selectbox("Select Indicator", indicators)
     if team_type == "sfdr":
         datapoint_names = list(sfdr_keywords_dict[indicator].keys())
     else:
         datapoint_names = list(asset_keywords_dict[indicator].keys())
-    
+
     datapoint_name = st.multiselect("Select Datapoint Names", datapoint_names)
-    
+
     # Keyword Text Area: Allow users to add additional keywords
     extra_keywords_input = st.text_area("Additional Keywords (comma-separated)", "")
 
@@ -192,7 +219,7 @@ def main():
             selected_keywords.extend(asset_keywords_dict[indicator].get(datapoint, []))
 
     selected_keywords = list(set(selected_keywords))  # Remove duplicates
-    
+
     # Add any extra keywords entered in the text area
     if extra_keywords_input:
         extra_keywords = [keyword.strip() for keyword in extra_keywords_input.split(',')]
@@ -211,17 +238,17 @@ def main():
             return
 
         embeddings = create_embeddings(text_chunks)
-        index = build_vector_database(embeddings)  
+        index = build_vector_database_gpu(embeddings)  # Build FAISS index with GPU support
 
         # Calculate keyword statistics
         keyword_stats = calculate_keyword_statistics(text_chunks, selected_keywords)
-        
+
         # Display keyword statistics
         st.write("### Keyword Statistics")
         stats_data = []
         for keyword, stats in keyword_stats.items():
             stats_data.append([keyword, stats['occurrences'], sorted(list(stats['pages']))])
-        
+
         stats_df = pd.DataFrame(stats_data, columns=["Keyword", "Occurrences", "Pages"])
         st.dataframe(stats_df)
 
@@ -233,15 +260,13 @@ def main():
                 # Display relevant text with page number
                 st.write(f"**Page {result[1]}**: {result[0]}")  # Display relevant sentence
                 page_number = result[1]
-                
+
                 # Highlight matching words and generate image of the page
-                doc_with_highlights = highlight_text_on_pdf(doc, query,selected_keywords, page_number)
+                doc_with_highlights = highlight_text_on_pdf(doc, query, selected_keywords, page_number)
                 highlighted_image = page_to_image_with_highlights(doc_with_highlights, page_number, dpi_scale=2)
-                
+
                 # Display the page with highlights
                 st.image(highlighted_image, caption=f"Highlighted Page {page_number}")
-
-
 
 if __name__ == "__main__":
     main()
