@@ -15,9 +15,6 @@ import numpy as np
 # Load the transformer model for embeddings
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# Load the SpaCy tokenizer for faster sentence tokenization
-nlp = spacy.load("en_core_web_sm")
-
 # Check for punkt tokenizer (if missing, download)
 try:
     nltk.data.find('tokenizers/punkt_tab')
