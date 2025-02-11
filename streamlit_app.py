@@ -1,3 +1,4 @@
+
 import streamlit as st
 import faiss
 from sentence_transformers import SentenceTransformer
@@ -8,16 +9,11 @@ from io import BytesIO
 from PIL import Image
 import pandas as pd
 import nltk
-import spacy
-
-# Load the transformer model for embeddings
-model = SentenceTransformer('all-MiniLM-L6-v2')
-
-# Ensure NLTK punkt tokenizer is available
 try:
     nltk.data.find('tokenizers/punkt_tab')
 except LookupError:
-    nltk.download('punkt_tab')
+    nltk.download('punkt_tab')# Load the transformer model for embeddings
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
 # Load the SFDR and Asset Keyword data from GitHub (URLs directly)
 def load_keywords_from_github(url):
@@ -61,27 +57,19 @@ def extract_pdf_content(pdf_file):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
         temp_file.write(pdf_file.read())
         temp_file_path = temp_file.name
-
+        
     doc = fitz.open(temp_file_path)
     text_chunks = []
     word_positions = []  # To store word positions for highlighting
-
+    
     # Extract text and word positions from each page
     for page_number, page in enumerate(doc, start=1):
         text = page.get_text("text")  # Extract text from the page
         words = page.get_text("words")  # Extract word positions
-
-        # Ensure text is not empty or malformed before processing
-        if text.strip():
-            try:
-                sentences = [sent.text.strip() for sent in nlp(text).sents if sent.text.strip()]  # Tokenize and clean
-                # Store each sentence with its respective page and word positions
-                text_chunks.extend([(sent, page_number, words) for sent in sentences])
-            except Exception as e:
-                print(f"Error processing page {page_number}: {e}")
-        else:
-            print(f"Warning: Empty text on page {page_number}. Skipping...")
-
+        
+        # Store each sentence with its respective page and word positions
+        text_chunks.extend([(sent, page_number, words) for sent in sent_tokenize(text)])
+    
     return text_chunks, doc  # Return text with word positions and the document object for highlighting
 
 # Function to create embeddings
@@ -111,6 +99,7 @@ def highlight_text_on_pdf(doc, query, selected_keywords, page_number):
     
     # Search for the query on the page and add to the instances set
     text_instances.update(page.search_for(query)) 
+    
     # Search for each selected keyword and add to the instances set
     for keyword in selected_keywords:
         text_instances.update(page.search_for(keyword))  # This finds the exact position of each keyword
@@ -251,6 +240,8 @@ def main():
                 
                 # Display the page with highlights
                 st.image(highlighted_image, caption=f"Highlighted Page {page_number}")
+
+
 
 if __name__ == "__main__":
     main()
