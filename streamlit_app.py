@@ -9,6 +9,9 @@ from io import BytesIO
 from PIL import Image
 import pandas as pd
 import nltk
+import concurrent.futures
+import numpy as np
+
 try:
     nltk.data.find('tokenizers/punkt_tab')
 except LookupError:
@@ -25,7 +28,20 @@ def load_keywords_from_github(url):
 def process_keywords_to_dict(df, team_type):
     keyword_dict = {}
     for index, row in df.iterrows():
-        indicator = row['SFDR Indicator'] if team_type == 'sfdr' else row['Asset/Report Type']
+        indicator = None
+        if team_type == 'sfdr':
+            indicator = row['SFDR Indicator']  
+        elif team_type == 'physical assets': 
+            indicator = row['Asset/Report Type']
+        elif team_type == 'Company data - Granular segments': 
+            indicator = row['Granular Indicator']
+        elif team_type == 'ENS Diversity': 
+            indicator = row['Div_Indicators'] 
+        elif team_type == 'Governance annual update': 
+            indicator = row['CG- Indicator']
+        # Check if the indicator is valid (not None or empty)
+        if not indicator:
+            continue  # Skip this row if indicator is invalid            
         datapoint_name = row['Datapoint Name']
         keywords = row['Keywords'].split(',')
         keywords = [keyword.strip() for keyword in keywords]
@@ -72,7 +88,7 @@ def extract_pdf_content(pdf_file):
     
     return text_chunks, doc  # Return text with word positions and the document object for highlighting
 
-def create_embeddings(text_chunks, batch_size=8):
+def create_embeddings(text_chunks, batch_size=32):
     """
     Create embeddings for the text chunks in batches using concurrency.
     """
@@ -147,19 +163,21 @@ def calculate_keyword_statistics(text_chunks, selected_keywords):
     for keyword in selected_keywords:
         keyword_stats[keyword] = {
             'occurrences': 0,
-            'pages': set()
+            'pages': set()  # Set to avoid duplicate page numbers
         }
     
     # Count occurrences of keywords in the text chunks
     for sentence, page_number, _ in text_chunks:
         for keyword in selected_keywords:
-            if keyword.lower() in sentence.lower():
-                keyword_stats[keyword]['occurrences'] += 1
-                keyword_stats[keyword]['pages'].add(page_number)
+            occurrences_in_sentence = sentence.lower().count(keyword.lower())
+            if occurrences_in_sentence > 0:
+                keyword_stats[keyword]['occurrences'] += occurrences_in_sentence
+                keyword_stats[keyword]['pages'].add(page_number)  # Track the page number where the keyword appears
     
     return keyword_stats
 
-def main():
+
+def run():
     # Streamlit UI components
     st.title("📄 **Query Based Extractor **")
     st.markdown("this Tool is to help identify, highlight the keywords or user query sentence and extract the details through user query.")
@@ -175,28 +193,61 @@ def main():
     # URLs of the GitHub Excel files (update with actual raw GitHub links)
     sfdr_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/sfdr_file.xlsx"  # Replace with actual SFDR Excel file URL
     asset_file_url = "https://raw.github.com/Dheena1-coder/PdfAnalyzer/master/asset_file.xlsx"  # Replace with actual Asset Excel file URL
+    gowtham_file_url = "https://raw.github.com/Dheena1-coder/key_or_query/main/gowtham_keywords.xlsx"
+    diversity_file_url = "https://raw.github.com/Dheena1-coder/key_or_query/main/Diversity_Keywords.xlsx" 
+    surya_file_url = "https://raw.github.com/Dheena1-coder/key_or_query/main/Governance_update_keywords.xlsx"
 
     # Load and process the keyword dictionaries
     sfdr_df = load_keywords_from_github(sfdr_file_url)
     asset_df = load_keywords_from_github(asset_file_url)
+    gowtham_df = load_keywords_from_github(gowtham_file_url)
+    diversity_df = load_keywords_from_github(diversity_file_url)
+    surya_df = load_keywords_from_github(surya_file_url)
+
+    
 
     sfdr_keywords_dict = process_keywords_to_dict(sfdr_df, 'sfdr')
-    asset_keywords_dict = process_keywords_to_dict(asset_df, 'assets')
+    asset_keywords_dict = process_keywords_to_dict(asset_df, 'physical assets')
+    gowtham_keywords_dict = process_keywords_to_dict(gowtham_df,'Company data - Granular segments')
+    diversity_keywords_dict = process_keywords_to_dict(diversity_df,'ENS Diversity')
+    surya_keywords_dict = process_keywords_to_dict(surya_df,'Governance annual update')
 
     # Create dropdown for team selection
-    team_type = st.selectbox("Select Team", ["sfdr", "physical assets"])
+    team_type = st.selectbox("Select Team", ["sfdr", "physical assets",'Company data','ENS Diversity','Governance annual update'])
 
     # Display appropriate keyword dictionary based on team selection
     if team_type == "sfdr":
         indicators = list(sfdr_keywords_dict.keys())
-    else:
+    elif team_type == "physical assets":
         indicators = list(asset_keywords_dict.keys())
-    
-    indicator = st.selectbox("Select Indicator", indicators)
+    elif team_type == "Company data - Granular segments":
+        indicators = list(gowtham_keywords_dict.keys())
+    elif team_type == "ENS Diversity":    
+        indicators = list(diversity_keywords_dict.keys())
+    elif team_type == "Governance annual update":
+        indicators = list(surya_keywords_dict.keys())  
+    else:
+        indicators = []
+    if indicators:
+        indicator = st.selectbox("Select Indicator", indicators)
+    else:
+        indicator = None
+    if indicator is None:
+        st.warning("Please select a valid indicator.")
+        return
+
     if team_type == "sfdr":
         datapoint_names = list(sfdr_keywords_dict[indicator].keys())
-    else:
+    elif team_type == "physical assets":
         datapoint_names = list(asset_keywords_dict[indicator].keys())
+    elif team_type == "Company data - Granular segments":
+        datapoint_names = list(gowtham_keywords_dict[indicator].keys())
+    elif team_type == "ENS Diversity":    
+        datapoint_names = list(diversity_keywords_dict[indicator].keys())
+    elif team_type == "Governance annual update":
+        datapoint_names = list(surya_keywords_dict[indicator].keys())
+    else:
+        datapoint_names = []
     
     datapoint_name = st.multiselect("Select Datapoint Names", datapoint_names)
     
@@ -208,10 +259,20 @@ def main():
     if team_type == "sfdr":
         for datapoint in datapoint_name:
             selected_keywords.extend(sfdr_keywords_dict[indicator].get(datapoint, []))
-    else:
+    elif team_type == "physical assets":
         for datapoint in datapoint_name:
             selected_keywords.extend(asset_keywords_dict[indicator].get(datapoint, []))
-
+    elif team_type == "Company data - Granular segments":
+        for datapoint in datapoint_name:
+            selected_keywords.extend(gowtham_keywords_dict[indicator].get(datapoint, []))
+    elif team_type == "ENS Diversity":
+        for datapoint in datapoint_name:
+            selected_keywords.extend(diversity_keywords_dict[indicator].get(datapoint, []))                
+    elif team_type == "Governance annual update":
+        for datapoint in datapoint_name:
+            selected_keywords.extend(surya_keywords_dict[indicator].get(datapoint, []))
+    else:
+        st.write("**Keywords is not available**")
     selected_keywords = list(set(selected_keywords))  # Remove duplicates
     
     # Add any extra keywords entered in the text area
@@ -265,4 +326,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run()
